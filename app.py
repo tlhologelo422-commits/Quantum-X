@@ -90,7 +90,3 @@ if uploaded_chart is not None:
                     
                 except Exception as system_error:
                     st.error(f"Execution Error: {system_error}")
-
-# 4. Mandatory Risk Management Disclaimer Bar
-st.markdown("---")
-st.caption("⚠️ **Risk Disclosure Summary:** Vision-based AI execution tools possess clear spatial precision limitations. Mathematical coordinates and order book values displayed on dashboard evaluations must always be manually cross-verified
