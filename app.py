@@ -93,4 +93,4 @@ if uploaded_chart is not None:
 
 # 4. Mandatory Risk Management Disclaimer Bar
 st.markdown("---")
-st.caption("⚠️ **Risk Disclosure Summary:** Vision-based AI execution tools possess clear spatial precision limitations. Mathematical coordinates and order book values displayed on dashboard evaluations must always be manually cross-verified on a live trading terminal before allocating financial risk.")
+st.caption("⚠️ **Risk Disclosure Summary:** Vision-based AI execution tools possess clear spatial precision limitations. Mathematical coordinates and order book values displayed on dashboard evaluations must always be manually cross-verified
