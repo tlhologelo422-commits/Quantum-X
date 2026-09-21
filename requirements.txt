@@ -1,0 +1,7 @@
+streamlit>=1.50.0
+pandas>=2.2.0
+numpy>=2.0.0
+pydantic>=2.8.0
+openai>=2.0.0
+Pillow>=10.0.0
+requests>=2.32.0
