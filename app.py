@@ -463,3 +463,55 @@ def detect_structure_events(
     df["market_bias"] = market_bias
 
     return df
+def run_smc_engine(data):
+
+    df = detect_swing_points(
+        data,
+        left_bars=3,
+        right_bars=3,
+    )
+
+    df = classify_structure(
+        df
+    )
+
+    df = detect_structure_events(
+        df
+    )
+
+    return df
+
+
+def get_structure_summary(data):
+
+    latest_bias = data[
+        "market_bias"
+    ].iloc[-1]
+
+    bos_events = data[
+        data["bos"] != ""
+    ]
+
+    choch_events = data[
+        data["choch"] != ""
+    ]
+
+    swing_highs = data[
+        data["swing_high"]
+    ]
+
+    swing_lows = data[
+        data["swing_low"]
+    ]
+
+    return {
+        "bias": latest_bias,
+        "bos_count": len(bos_events),
+        "choch_count": len(choch_events),
+        "swing_high_count": len(
+            swing_highs
+        ),
+        "swing_low_count": len(
+            swing_lows
+        ),
+    }
