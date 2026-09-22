@@ -115,7 +115,7 @@ else:
 
     st.info("Connect your IG Demo account to continue.")
 # ==========================================
-# CHUNK 2 — GOLD MARKET DISCOVERY
+# CHUNK 2 — GOLD MARKET DISCOVERY V2
 # ==========================================
 
 st.session_state.setdefault("gold_epic", None)
@@ -133,37 +133,46 @@ def ig_headers(version="1"):
     }
 
 
-def find_gold():
-
-    if not st.session_state.connected:
-        st.error("Connect IG Demo first.")
-        return
+def search_gold(term):
 
     try:
 
         response = requests.get(
             BASE + "/markets",
             headers=ig_headers("1"),
-            params={"searchTerm": "Gold"},
+            params={"searchTerm": term},
             timeout=20
         )
 
         if response.status_code != 200:
-            st.error("IG Gold search failed.")
-            st.code(response.text)
-            return
+            return []
 
-        markets = response.json().get(
+        return response.json().get(
             "markets", []
         )
 
-        if not markets:
-            st.warning(
-                "IG returned no markets for Gold."
-            )
-            return
+    except Exception:
+        return []
 
-        rows = []
+
+def find_gold():
+
+    if not st.session_state.connected:
+        st.error("Connect IG Demo first.")
+        return
+
+    terms = [
+        "Gold",
+        "XAU",
+        "XAUUSD",
+        "Spot Gold"
+    ]
+
+    all_markets = {}
+
+    for term in terms:
+
+        markets = search_gold(term)
 
         for market in markets:
 
@@ -176,92 +185,120 @@ def find_gold():
             )
 
             epic = instrument.get("epic")
-            name = instrument.get("name", "")
-            status = snapshot.get(
-                "marketStatus",
-                "UNKNOWN"
-            )
 
             if epic:
 
-                rows.append({
+                all_markets[epic] = {
                     "EPIC": epic,
-                    "Name": name,
-                    "Status": status
-                })
+                    "Name": instrument.get(
+                        "name", ""
+                    ),
+                    "Status": snapshot.get(
+                        "marketStatus",
+                        "UNKNOWN"
+                    ),
+                    "Instrument": instrument.get(
+                        "type", ""
+                    )
+                }
 
-        if not rows:
-            st.warning(
-                "Gold search returned no usable EPIC."
-            )
-            return
+    rows = list(all_markets.values())
 
-        st.subheader("🥇 IG Gold Markets")
-
-        st.dataframe(
-            rows,
-            use_container_width=True,
-            hide_index=True
-        )
-
-        # Prefer a tradeable Gold market
-        selected = None
-
-        for row in rows:
-
-            text = (
-                row["EPIC"] + " " +
-                row["Name"]
-            ).lower()
-
-            if (
-                ("gold" in text or "xau" in text)
-                and row["Status"] == "TRADEABLE"
-            ):
-                selected = row
-                break
-
-        # Fallback to first Gold/XAU result
-        if selected is None:
-
-            for row in rows:
-
-                text = (
-                    row["EPIC"] + " " +
-                    row["Name"]
-                ).lower()
-
-                if "gold" in text or "xau" in text:
-                    selected = row
-                    break
-
-        if selected is None:
-            st.warning(
-                "No Gold/XAU EPIC identified."
-            )
-            return
-
-        st.session_state.gold_epic = (
-            selected["EPIC"]
-        )
-
-        st.session_state.gold_name = (
-            selected["Name"]
-        )
-
-        st.success(
-            "🥇 Gold EPIC selected."
-        )
-
-        st.code(
-            st.session_state.gold_epic
-        )
-
-    except requests.exceptions.RequestException as e:
+    if not rows:
 
         st.error(
-            f"Gold search network error: {e}"
+            "❌ IG returned no usable markets."
         )
+
+        st.info(
+            "The connection works, but IG is "
+            "not returning market search results."
+        )
+
+        return
+
+    st.subheader(
+        "🔎 IG Market Search Results"
+    )
+
+    st.dataframe(
+        rows,
+        use_container_width=True,
+        hide_index=True
+    )
+
+    # --------------------------------------
+    # FIND GOLD / XAU
+    # --------------------------------------
+
+    gold_rows = []
+
+    for row in rows:
+
+        text = (
+            str(row["EPIC"]) + " " +
+            str(row["Name"])
+        ).lower()
+
+        if (
+            "gold" in text
+            or "xau" in text
+        ):
+            gold_rows.append(row)
+
+    if not gold_rows:
+
+        st.warning(
+            "⚠️ IG returned markets, but none "
+            "contain Gold/XAU in the EPIC or name."
+        )
+
+        st.info(
+            "Check the table above. "
+            "We will use the exact IG EPIC returned."
+        )
+
+        return
+
+    # Prefer tradeable Gold
+    selected = None
+
+    for row in gold_rows:
+
+        if row["Status"] == "TRADEABLE":
+            selected = row
+            break
+
+    # Otherwise use first Gold result
+    if selected is None:
+        selected = gold_rows[0]
+
+    st.session_state.gold_epic = selected[
+        "EPIC"
+    ]
+
+    st.session_state.gold_name = selected[
+        "Name"
+    ]
+
+    st.success(
+        "🥇 GOLD MARKET FOUND"
+    )
+
+    st.write(
+        "EPIC:",
+        st.session_state.gold_epic
+    )
+
+    st.write(
+        "Name:",
+        st.session_state.gold_name
+    )
+
+    st.write(
+        "Status:",
+        selected["Status"]
+    )
 
 
 # ==========================================
@@ -274,4 +311,4 @@ if st.session_state.connected:
         "🥇 FIND GOLD",
         use_container_width=True
     ):
-        find_gold()
+        find_gold()    
