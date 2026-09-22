@@ -147,3 +147,215 @@ def supertrend(df,p=10,m=3.0):
  df["atr"]=atr
  return df
 # END PART1
+def instant_signal(df):
+ if df is None or len(df)<30: return "WAIT",None,None,None,0,0,"no df"
+ df=supertrend(df,10,3.0)
+ if df is None: return "WAIT",None,None,None,0,0,"st fail"
+ last=df.iloc[-1]
+ if pd.isna(last["atr"]): return "WAIT",None,None,df,0,0,"atr nan"
+ bias="BUY" if last["st_dir"]==1 else "SELL"
+ sl=last["close"]-last["atr"]*2.5 if bias=="BUY" else last["close"]+last["atr"]*2.5
+ tp=last["close"]+last["atr"]*3.5 if bias=="BUY" else last["close"]-last["atr"]*3.5
+ return bias,sl,tp,df,last["close"],last["atr"],"ok"
+
+def analyze_dual_ai(image_bytes, market, gem_key, groq_key):
+ if gem_key:
+  try:
+   import google.generativeai as genai
+   genai.configure(api_key=gem_key)
+   model=genai.GenerativeModel("gemini-2.0-flash")
+   img=Image.open(io.BytesIO(image_bytes))
+   prompt=f"You are pro scalper {market}. Analyze chart. Return ONLY JSON: {{\"trend\":\"BULLISH/BEARISH\",\"signal\":\"BUY/SELL/WAIT\",\"entry\":0,\"sl\":0,\"tp\":0,\"confidence\":0,\"reason\":\"short\"}}"
+   resp=model.generate_content([prompt,img])
+   return True, resp.text, "GEMINI 2.0 FLASH"
+  except Exception as e:
+   gem_err=str(e)
+ else:
+  gem_err="No Gemini key"
+ if groq_key:
+  try:
+   from groq import Groq
+   client=Groq(api_key=groq_key)
+   b64=base64.b64encode(image_bytes).decode('utf-8')
+   comp=client.chat.completions.create(
+    model="meta-llama/llama-4-scout-17b-16e-instruct",
+    messages=[{"role":"user","content":[{"type":"text","text":f"Analyze {market} chart. JSON only {{\"trend\":\"\",\"signal\":\"BUY/SELL/WAIT\",\"entry\":0,\"sl\":0,\"tp\":0,\"confidence\":0,\"reason\":\"\"}}"},{"type":"image_url","image_url":{"url":f"data:image/jpeg;base64,{b64}"}}]}],
+    max_tokens=400)
+   return True, comp.choices[0].message.content, "GROQ LLAMA 4 SCOUT"
+  except Exception as e:
+   return False, f"Gemini:{gem_err} | Groq:{e}", "NONE"
+ return False, f"Add free keys. Gemini err: {gem_err}", "NONE"
+
+with st.sidebar:
+ st.header("SOLID V17.1 FIXED")
+ mkt=st.selectbox("Market",list(YAHOO.keys()),index=3)
+ if mkt!=st.session_state["last_mkt"]:
+  st.session_state["mkts"]=[]; st.session_state["last_mkt"]=mkt
+ size=st.number_input("Lot 0.01-0.15",0.01,0.15,0.05,0.01)
+ st.divider()
+ st.subheader("FREE AI Keys")
+ gem_input=st.text_input("Gemini FREE key",type="password",help="aistudio.google.com/apikey")
+ groq_input=st.text_input("Groq FREE key",type="password",help="console.groq.com/keys")
+ st.divider()
+ if st.session_state["con"]:
+  st.success("IG Connected")
+ else:
+  if st.button("Connect IG",use_container_width=True):
+   ok,msg,data=login()
+   if ok:
+    st.session_state["con"]=True; st.session_state["cst"]=data["cst"]; st.session_state["xsec"]=data["xsec"]; st.rerun()
+   else: st.error(msg)
+
+if not st.session_state["con"]:
+ st.warning("Connect IG")
+ st.stop()
+
+term=IG_SEARCH[mkt]
+if st.button(f"Find {mkt} EPIC",use_container_width=True):
+ ok,err,res=search(term)
+ if ok:
+  found=[]
+  for x in res:
+   epic=x.get("epic","") or x.get("instrument",{}).get("epic","")
+   name=x.get("instrumentName","") or x.get("instrument",{}).get("name","")
+   if epic: found.append({"epic":epic,"name":name})
+  st.session_state["mkts"]=found
+  st.success(f"Found {len(found)}")
+ else: st.error(err)
+
+if not st.session_state["mkts"]:
+ st.info("Tap Find EPIC")
+ st.stop()
+
+epics=[x["epic"] for x in st.session_state["mkts"]]
+labs=[f"{x['epic']} | {x['name']}" for x in st.session_state["mkts"]]
+idx=st.selectbox("Pick EPIC",range(len(epics)),format_func=lambda i: labs[i])
+epic=epics[idx]
+
+st.divider()
+st.subheader("LIVE PnL")
+acc=get_accounts()
+pos=get_positions()
+if acc:
+ try:
+  bal=acc.get("accounts",[])[0].get("balance",{}).get("balance",0)
+  st.metric("Balance",f"${bal}")
+ except: pass
+if pos:
+ tot=0
+ for p in pos:
+  po=p.get("position",{})
+  pnl=po.get("profit",0) or 0
+  try: tot+=float(pnl)
+  except: pass
+  st.write(f"{p.get('market',{}).get('instrumentName','')} {po.get('direction')} {po.get('size')} PnL ${pnl}")
+ st.metric("Total PnL",f"${tot:.2f}")
+else: st.write("No positions")
+
+st.divider()
+st.subheader("DUAL AI SCANNER - FREE")
+up=st.file_uploader("Upload chart",type=["png","jpg","jpeg"])
+if up:
+ st.image(up,caption="Chart",use_column_width=True)
+ if st.button("SCAN WITH DUAL FREE AI",type="primary",use_container_width=True):
+  _,_,_,sec_gem,sec_groq=get_creds()
+  gk=sec_gem or gem_input
+  gqk=sec_groq or groq_input
+  if not gk and not gqk:
+   st.error("Add Gemini FREE key from aistudio.google.com/apikey")
+  else:
+   with st.spinner("Dual AI scanning..."):
+    ok,txt,model_used=analyze_dual_ai(up.getvalue(),mkt,gk,gqk)
+    if ok:
+     st.success(f"Done via {model_used}")
+     st.code(txt)
+     try:
+      m=re.search(r'\{.*\}',txt,re.DOTALL)
+      if m:
+       j=json.loads(m.group())
+      else:
+       j={}
+      sig=j.get("signal","WAIT")
+      ent=j.get("entry")
+      sl=j.get("sl")
+      tp=j.get("tp")
+      conf=j.get("confidence",0)
+      st.write(f"{model_used}: {sig} | Conf {conf}% | Entry {ent} SL {sl} TP {tp}")
+      if sig in ["BUY","SELL"]:
+       if st.button(f"TRADE AI {sig}",use_container_width=True):
+        ok2,msg2,_=place_solid(epic,sig,size,sl,tp)
+        if ok2:
+         st.success(msg2)
+         st.balloons()
+        else:
+         st.error(msg2)
+     except Exception as e:
+      st.write(f"Raw: {txt[:400]}")
+      st.write(f"Parse err: {e}")
+    else:
+     st.error(txt)
+
+st.divider()
+try:
+ sym=TV[mkt]
+ components.html(f"""<div id="tv" style="height:350px;"></div><script src="https://s3.tradingview.com/tv.js"></script><script>new TradingView.widget({{"autosize":true,"symbol":"{sym}","interval":"5","timezone":"Africa/Johannesburg","theme":"dark","style":"1","container_id":"tv"}});</script>""",height=370)
+except: pass
+
+st.subheader(f"Auto {mkt} {epic}")
+b1,b2,b3=st.columns(3)
+with b1: trade_btn=st.button("TRADE NOW",use_container_width=True,type="primary")
+with b2: close_btn=st.button("CLOSE ALL",use_container_width=True)
+with b3: auto_btn=st.button("START AUTO",use_container_width=True)
+
+if close_btn:
+ r=close_all_for_epic(epic)
+ st.success(f"Closed {r}")
+ time.sleep(1)
+ st.rerun()
+
+def run_trade():
+ df=get_yahoo_candles(YAHOO[mkt])
+ if df is None:
+  st.error("Yahoo no candles - Try XAU/USD")
+  return
+ bias,sl,tp,full,price,atr,msg=instant_signal(df)
+ if full is None:
+  st.error(msg)
+  return
+ st.metric("Bias",bias)
+ st.write(f"Price {price:.2f} SL {sl:.2f} TP {tp:.2f}")
+ pos=get_positions()
+ this=[p for p in pos if p.get("market",{}).get("epic")==epic]
+ if this:
+  st.warning("Already has position")
+ else:
+  ok,msg2,_=place_solid(epic,bias,size,sl,tp)
+  if ok:
+   st.success(f"{msg2}")
+   st.balloons()
+  else:
+   st.error(msg2)
+ if full is not None:
+  st.line_chart(full.set_index("time")[["close","supertrend"]].tail(100))
+
+if trade_btn: run_trade()
+if auto_btn:
+ st.session_state["running"]=True
+ run_trade()
+
+if st.session_state["running"]:
+ st.info("AUTO ON every 60s")
+ ph=st.empty()
+ while st.session_state["running"]:
+  time.sleep(60)
+  df=get_yahoo_candles(YAHOO[mkt])
+  if df is None: continue
+  bias,sl,tp,full,price,atr,msg=instant_signal(df)
+  pos=get_positions()
+  this=[p for p in pos if p.get("market",{}).get("epic")==epic]
+  if this:
+   with ph.container(): st.write(f"{time.strftime('%H:%M:%S')} Has pos")
+   continue
+  ok,msg2,_=place_solid(epic,bias,size,sl,tp)
+  with ph.container(): st.write(f"{time.strftime('%H:%M:%S')} AUTO {bias} {msg2}")
+  st.rerun()
