@@ -182,3 +182,236 @@ def fetch_yahoo_data(
             None,
             str(error),
 )
+def calculate_indicators(data):
+
+    df = data.copy()
+
+    df["ema_20"] = (
+        df["close"]
+        .ewm(
+            span=20,
+            adjust=False,
+        )
+        .mean()
+    )
+
+    df["ema_50"] = (
+        df["close"]
+        .ewm(
+            span=50,
+            adjust=False,
+        )
+        .mean()
+    )
+
+    df["ema_200"] = (
+        df["close"]
+        .ewm(
+            span=200,
+            adjust=False,
+        )
+        .mean()
+    )
+
+    change = df["close"].diff()
+
+    gains = change.clip(
+        lower=0
+    )
+
+    losses = -change.clip(
+        upper=0
+    )
+
+    average_gain = (
+        gains
+        .rolling(14)
+        .mean()
+    )
+
+    average_loss = (
+        losses
+        .rolling(14)
+        .mean()
+    )
+
+    relative_strength = (
+        average_gain /
+        average_loss.replace(
+            0,
+            float("nan"),
+        )
+    )
+
+    df["rsi"] = (
+        100 -
+        (
+            100 /
+            (1 + relative_strength)
+        )
+    )
+
+    ema_12 = (
+        df["close"]
+        .ewm(
+            span=12,
+            adjust=False,
+        )
+        .mean()
+    )
+
+    ema_26 = (
+        df["close"]
+        .ewm(
+            span=26,
+            adjust=False,
+        )
+        .mean()
+    )
+
+    df["macd"] = (
+        ema_12 - ema_26
+    )
+
+    df["macd_signal"] = (
+        df["macd"]
+        .ewm(
+            span=9,
+            adjust=False,
+        )
+        .mean()
+    )
+
+    previous_close = (
+        df["close"].shift(1)
+    )
+
+    true_range = pd.concat(
+        [
+            df["high"] -
+            df["low"],
+
+            (
+                df["high"] -
+                previous_close
+            ).abs(),
+
+            (
+                df["low"] -
+                previous_close
+            ).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
+
+    df["atr"] = (
+        true_range
+        .rolling(14)
+        .mean()
+    )
+
+    df["volume_average"] = (
+        df["volume"]
+        .rolling(20)
+        .mean()
+    )
+
+    df["volume_ratio"] = (
+        df["volume"] /
+        df["volume_average"]
+        .replace(
+            0,
+            float("nan"),
+        )
+    )
+
+    return df
+
+
+def create_candlestick_chart(
+    data,
+    market_name,
+    timeframe,
+):
+
+    chart = go.Figure()
+
+    chart.add_trace(
+        go.Candlestick(
+            x=data["timestamp"],
+            open=data["open"],
+            high=data["high"],
+            low=data["low"],
+            close=data["close"],
+            name="Price",
+            increasing_line_color="#00e676",
+            decreasing_line_color="#ff5252",
+        )
+    )
+
+    chart.add_trace(
+        go.Scatter(
+            x=data["timestamp"],
+            y=data["ema_20"],
+            mode="lines",
+            name="EMA 20",
+            line=dict(
+                color="#00bcd4",
+                width=1,
+            ),
+        )
+    )
+
+    chart.add_trace(
+        go.Scatter(
+            x=data["timestamp"],
+            y=data["ema_50"],
+            mode="lines",
+            name="EMA 50",
+            line=dict(
+                color="#ff9800",
+                width=1,
+            ),
+        )
+    )
+
+    chart.add_trace(
+        go.Scatter(
+            x=data["timestamp"],
+            y=data["ema_200"],
+            mode="lines",
+            name="EMA 200",
+            line=dict(
+                color="#e91e63",
+                width=1,
+            ),
+        )
+    )
+
+    chart.update_layout(
+        title=(
+            f"{market_name} • "
+            f"{timeframe} • Yahoo Finance"
+        ),
+        template="plotly_dark",
+        height=650,
+        xaxis_title="Time",
+        yaxis_title="Price",
+        xaxis_rangeslider_visible=False,
+        hovermode="x unified",
+        margin=dict(
+            l=20,
+            r=20,
+            t=60,
+            b=20,
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="left",
+            x=0,
+        ),
+    )
+
+    return chart
