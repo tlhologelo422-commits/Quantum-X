@@ -3,4 +3,5 @@ pandas
 numpy<2.0.0
 requests
 Pillow
-openai>=1.30.0
+google-generativeai
+groq
