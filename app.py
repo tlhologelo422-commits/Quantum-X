@@ -515,3 +515,209 @@ def get_structure_summary(data):
             swing_lows
         ),
     }
+def create_smc_chart(
+    data,
+    market_name,
+    timeframe,
+):
+
+    chart = go.Figure()
+
+
+    chart.add_trace(
+        go.Candlestick(
+            x=data["timestamp"],
+            open=data["open"],
+            high=data["high"],
+            low=data["low"],
+            close=data["close"],
+            name="Price",
+            increasing_line_color="#00e676",
+            decreasing_line_color="#ff5252",
+        )
+    )
+
+
+    chart.add_trace(
+        go.Scatter(
+            x=data.loc[
+                data["swing_high"],
+                "timestamp",
+            ],
+            y=data.loc[
+                data["swing_high"],
+                "high",
+            ],
+            mode="markers",
+            name="Swing High",
+            marker=dict(
+                symbol="triangle-down",
+                size=9,
+                color="#ff5252",
+            ),
+        )
+    )
+
+
+    chart.add_trace(
+        go.Scatter(
+            x=data.loc[
+                data["swing_low"],
+                "timestamp",
+            ],
+            y=data.loc[
+                data["swing_low"],
+                "low",
+            ],
+            mode="markers",
+            name="Swing Low",
+            marker=dict(
+                symbol="triangle-up",
+                size=9,
+                color="#00e676",
+            ),
+        )
+    )
+
+
+    bullish_bos = data[
+        data["bos"] == "BULLISH BOS"
+    ]
+
+
+    bearish_bos = data[
+        data["bos"] == "BEARISH BOS"
+    ]
+
+
+    bullish_choch = data[
+        data["choch"] == "BULLISH CHoCH"
+    ]
+
+
+    bearish_choch = data[
+        data["choch"] == "BEARISH CHoCH"
+    ]
+
+
+    chart.add_trace(
+        go.Scatter(
+            x=bullish_bos[
+                "timestamp"
+            ],
+            y=bullish_bos[
+                "high"
+            ],
+            mode="markers+text",
+            name="Bullish BOS",
+            text=["BOS"] * len(
+                bullish_bos
+            ),
+            textposition="top center",
+            marker=dict(
+                symbol="diamond",
+                size=11,
+                color="#00e676",
+            ),
+        )
+    )
+
+
+    chart.add_trace(
+        go.Scatter(
+            x=bearish_bos[
+                "timestamp"
+            ],
+            y=bearish_bos[
+                "low"
+            ],
+            mode="markers+text",
+            name="Bearish BOS",
+            text=["BOS"] * len(
+                bearish_bos
+            ),
+            textposition="bottom center",
+            marker=dict(
+                symbol="diamond",
+                size=11,
+                color="#ff5252",
+            ),
+        )
+    )
+
+
+    chart.add_trace(
+        go.Scatter(
+            x=bullish_choch[
+                "timestamp"
+            ],
+            y=bullish_choch[
+                "low"
+            ],
+            mode="markers+text",
+            name="Bullish CHoCH",
+            text=["CHoCH"] * len(
+                bullish_choch
+            ),
+            textposition="bottom center",
+            marker=dict(
+                symbol="star",
+                size=12,
+                color="#00bcd4",
+            ),
+        )
+    )
+
+
+    chart.add_trace(
+        go.Scatter(
+            x=bearish_choch[
+                "timestamp"
+            ],
+            y=bearish_choch[
+                "high"
+            ],
+            mode="markers+text",
+            name="Bearish CHoCH",
+            text=["CHoCH"] * len(
+                bearish_choch
+            ),
+            textposition="top center",
+            marker=dict(
+                symbol="star",
+                size=12,
+                color="#ff9800",
+            ),
+        )
+    )
+
+
+    chart.update_layout(
+        title=(
+            f"{market_name} • "
+            f"{timeframe} • "
+            f"SMC Structure"
+        ),
+        template="plotly_dark",
+        height=700,
+        xaxis_title="Time",
+        yaxis_title="Price",
+        xaxis_rangeslider_visible=False,
+        hovermode="x unified",
+        margin=dict(
+            l=20,
+            r=20,
+            t=60,
+            b=20,
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="left",
+            x=0,
+        ),
+    )
+
+
+    return chart
