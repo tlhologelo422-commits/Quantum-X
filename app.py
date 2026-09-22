@@ -180,3 +180,208 @@ def get_yahoo_candles(
         )
 
         return None
+def calculate_indicators(dataframe):
+
+    df = dataframe.copy()
+
+    df["ema_20"] = (
+        df["close"]
+        .ewm(span=20, adjust=False)
+        .mean()
+    )
+
+    df["ema_50"] = (
+        df["close"]
+        .ewm(span=50, adjust=False)
+        .mean()
+    )
+
+    df["ema_200"] = (
+        df["close"]
+        .ewm(span=200, adjust=False)
+        .mean()
+    )
+
+    change = df["close"].diff()
+
+    gain = change.clip(lower=0)
+    loss = -change.clip(upper=0)
+
+    average_gain = (
+        gain.rolling(14)
+        .mean()
+    )
+
+    average_loss = (
+        loss.rolling(14)
+        .mean()
+    )
+
+    relative_strength = (
+        average_gain /
+        average_loss.replace(0, float("nan"))
+    )
+
+    df["rsi"] = (
+        100 -
+        (
+            100 /
+            (1 + relative_strength)
+        )
+    )
+
+    ema_12 = (
+        df["close"]
+        .ewm(span=12, adjust=False)
+        .mean()
+    )
+
+    ema_26 = (
+        df["close"]
+        .ewm(span=26, adjust=False)
+        .mean()
+    )
+
+    df["macd"] = (
+        ema_12 - ema_26
+    )
+
+    df["macd_signal"] = (
+        df["macd"]
+        .ewm(span=9, adjust=False)
+        .mean()
+    )
+
+    previous_close = (
+        df["close"].shift(1)
+    )
+
+    true_range = pd.concat(
+        [
+            df["high"] - df["low"],
+            (
+                df["high"] -
+                previous_close
+            ).abs(),
+            (
+                df["low"] -
+                previous_close
+            ).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
+
+    df["atr"] = (
+        true_range
+        .rolling(14)
+        .mean()
+    )
+
+    df["volume_average"] = (
+        df["volume"]
+        .rolling(20)
+        .mean()
+    )
+
+    df["volume_ratio"] = (
+        df["volume"] /
+        df["volume_average"]
+        .replace(0, float("nan"))
+    )
+
+    return df
+
+
+def detect_market_structure(dataframe):
+
+    df = dataframe.copy()
+
+    df["swing_high"] = (
+        df["high"]
+        .rolling(5, center=True)
+        .max()
+    )
+
+    df["swing_low"] = (
+        df["low"]
+        .rolling(5, center=True)
+        .min()
+    )
+
+    latest = df.iloc[-1]
+
+    previous_high = (
+        df["high"]
+        .iloc[-20:-1]
+        .max()
+    )
+
+    previous_low = (
+        df["low"]
+        .iloc[-20:-1]
+        .min()
+    )
+
+    if latest["close"] > previous_high:
+
+        structure = "Bullish BOS"
+
+    elif latest["close"] < previous_low:
+
+        structure = "Bearish BOS"
+
+    elif latest["close"] > latest["ema_50"]:
+
+        structure = "Bullish Structure"
+
+    elif latest["close"] < latest["ema_50"]:
+
+        structure = "Bearish Structure"
+
+    else:
+
+        structure = "Neutral Structure"
+
+    return structure
+
+
+def build_market_snapshot(dataframe):
+
+    latest = dataframe.iloc[-1]
+
+    structure = detect_market_structure(
+        dataframe
+    )
+
+    snapshot = {
+        "price": float(
+            latest["close"]
+        ),
+        "ema_20": float(
+            latest["ema_20"]
+        ),
+        "ema_50": float(
+            latest["ema_50"]
+        ),
+        "ema_200": float(
+            latest["ema_200"]
+        ),
+        "rsi": float(
+            latest["rsi"]
+        ),
+        "macd": float(
+            latest["macd"]
+        ),
+        "macd_signal": float(
+            latest["macd_signal"]
+        ),
+        "atr": float(
+            latest["atr"]
+        ),
+        "volume_ratio": float(
+            latest["volume_ratio"]
+        ),
+        "structure": structure,
+    }
+
+    return snapshot
