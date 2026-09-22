@@ -601,3 +601,187 @@ def show_engine_status():
         st.info(
             "GPT-5.6 Sol • NEXT"
         )
+st.title("📈 QUANTUM X PRO")
+
+st.caption(
+    "AI-Powered Market Analysis • "
+    "Live Yahoo Finance Candles • "
+    "Smart Money Concepts"
+)
+
+st.success("● SYSTEM ONLINE")
+
+
+with st.sidebar:
+
+    st.header("⚙️ Market Settings")
+
+    selected_market = st.selectbox(
+        "Market",
+        list(MARKETS.keys()),
+        index=0,
+    )
+
+    selected_timeframe = st.selectbox(
+        "Setup Timeframe",
+        list(TIMEFRAMES.keys()),
+        index=1,
+    )
+
+    analysis_mode = st.radio(
+        "Analysis Mode",
+        [
+            "Manual Analysis",
+            "Automatic Scanner",
+        ],
+    )
+
+    st.divider()
+
+    st.subheader("📡 Data Layer")
+
+    st.success(
+        "Yahoo Finance • OHLCV"
+    )
+
+    st.caption(
+        "IG remains available for "
+        "the broker layer."
+    )
+
+
+st.subheader("🕯️ Live Market Chart")
+
+
+ticker = MARKETS[
+    selected_market
+]["yahoo"]
+
+interval = TIMEFRAMES[
+    selected_timeframe
+]
+
+
+refresh = st.button(
+    "🔄 Refresh Market Data",
+    use_container_width=True,
+)
+
+
+if (
+    refresh
+    or
+    st.session_state["market_data"] is None
+    or
+    st.session_state["last_market"]
+    != selected_market
+    or
+    st.session_state["last_timeframe"]
+    != selected_timeframe
+):
+
+    with st.spinner(
+        "Loading live market candles..."
+    ):
+
+        data, error = fetch_yahoo_data(
+            ticker=ticker,
+            interval=interval,
+            period="30d",
+        )
+
+    if data is None:
+
+        st.session_state[
+            "market_data"
+        ] = None
+
+        st.session_state[
+            "data_error"
+        ] = error
+
+    else:
+
+        st.session_state[
+            "market_data"
+        ] = data
+
+        st.session_state[
+            "last_market"
+        ] = selected_market
+
+        st.session_state[
+            "last_timeframe"
+        ] = selected_timeframe
+
+        st.session_state[
+            "data_error"
+        ] = ""
+
+
+data = st.session_state[
+    "market_data"
+]
+
+
+if data is None:
+
+    st.error(
+        "No market candles are currently "
+        "available."
+    )
+
+    if st.session_state[
+        "data_error"
+    ]:
+
+        st.caption(
+            st.session_state[
+                "data_error"
+            ]
+        )
+
+    st.info(
+        "Press Refresh Market Data "
+        "to try again."
+    )
+
+else:
+
+    analysed_data = (
+        calculate_indicators(data)
+    )
+
+    st.success(
+        f"🟢 {len(data)} candles loaded "
+        f"from Yahoo Finance"
+    )
+
+    chart = create_candlestick_chart(
+        analysed_data,
+        selected_market,
+        selected_timeframe,
+    )
+
+    st.plotly_chart(
+        chart,
+        use_container_width=True,
+    )
+
+    display_market_metrics(
+        analysed_data
+    )
+
+    display_volume_chart(
+        analysed_data
+    )
+
+    display_technical_data(
+        analysed_data
+    )
+
+    st.subheader(
+        "🕯️ Recent Candles"
+    )
+
+    recent
