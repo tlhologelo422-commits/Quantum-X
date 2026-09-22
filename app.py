@@ -41,4 +41,10 @@ def search(term):
  try:
   r=requests.get(f"{IG}/markets",headers=hdrs("1"),params={"searchTerm":term},timeout=20)
   if r.status_code!=200: return False,f"{r.status_code}",[]
-  return True,"",r.json().get("markets
+  def search(term):
+ try:
+  r=requests.get(f"{IG}/markets",headers=hdrs("1"),params={"searchTerm":term},timeout=20)
+  if r.status_code!=200: return False,f"{r.status_code}",[]
+  data=r.json()
+  return True,"",data.get("markets",[])
+ except Exception as e: return False,str(e),[]
