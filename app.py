@@ -721,3 +721,112 @@ def create_smc_chart(
 
 
     return chart
+def display_smc_dashboard(
+    data,
+):
+
+    summary = get_structure_summary(
+        data
+    )
+
+    st.subheader(
+        "🧱 Smart Money Concepts"
+    )
+
+    col1, col2, col3, col4 = (
+        st.columns(4)
+    )
+
+    with col1:
+
+        if summary["bias"] == "BULLISH":
+
+            st.success(
+                "🟢 BULLISH"
+            )
+
+        elif summary["bias"] == "BEARISH":
+
+            st.error(
+                "🔴 BEARISH"
+            )
+
+        else:
+
+            st.info(
+                "⚪ NEUTRAL"
+            )
+
+        st.caption(
+            "Market Bias"
+        )
+
+    with col2:
+
+        st.metric(
+            "BOS Events",
+            summary["bos_count"],
+        )
+
+    with col3:
+
+        st.metric(
+            "CHoCH Events",
+            summary["choch_count"],
+        )
+
+    with col4:
+
+        st.metric(
+            "Swing Points",
+            (
+                summary["swing_high_count"]
+                +
+                summary["swing_low_count"]
+            ),
+        )
+
+
+    st.divider()
+
+
+    st.markdown(
+        "### 🔎 Recent Structure Events"
+    )
+
+
+    events = data[
+        (
+            data["bos"] != ""
+        )
+        |
+        (
+            data["choch"] != ""
+        )
+    ][
+        [
+            "timestamp",
+            "close",
+            "bos",
+            "choch",
+        ]
+    ].tail(10)
+
+
+    if events.empty:
+
+        st.info(
+            "No BOS or CHoCH events "
+            "detected in the current data."
+        )
+
+    else:
+
+        st.dataframe(
+            events.sort_values(
+                "timestamp",
+                ascending=False,
+            ),
+            use_container_width=True,
+            hide_index=True,
+    )
