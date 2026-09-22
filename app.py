@@ -830,3 +830,27 @@ def display_smc_dashboard(
             use_container_width=True,
             hide_index=True,
     )
+if st.session_state["market_data"] is not None:
+
+    smc_data = run_smc_engine(
+        st.session_state["market_data"]
+    )
+
+    st.subheader(
+        "📊 SMC Structure Chart"
+    )
+
+    smc_chart = create_smc_chart(
+        smc_data,
+        selected_market,
+        selected_timeframe,
+    )
+
+    st.plotly_chart(
+        smc_chart,
+        use_container_width=True,
+    )
+
+    display_smc_dashboard(
+        smc_data
+    )
