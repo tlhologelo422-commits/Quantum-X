@@ -385,3 +385,186 @@ def build_market_snapshot(dataframe):
     }
 
     return snapshot
+def render_tradingview_chart(
+    market_name,
+    timeframe,
+):
+
+    symbol = MARKETS[
+        market_name
+    ]["tradingview"]
+
+    interval = TIMEFRAMES[
+        timeframe
+    ]
+
+    chart_html = f"""
+    <div
+        id="tradingview_chart"
+        style="
+            height:600px;
+            width:100%;
+        ">
+    </div>
+
+    <script
+        src="https://s3.tradingview.com/tv.js">
+    </script>
+
+    <script>
+
+    new TradingView.widget({{
+        "autosize": true,
+        "symbol": "{symbol}",
+        "interval": "{interval}",
+        "timezone": "Africa/Johannesburg",
+        "theme": "dark",
+        "style": "1",
+        "locale": "en",
+        "enable_publishing": false,
+        "hide_top_toolbar": false,
+        "hide_legend": false,
+        "save_image": false,
+        "container_id":
+            "tradingview_chart"
+    }});
+
+    </script>
+    """
+
+    components.html(
+        chart_html,
+        height=620,
+        scrolling=False,
+    )
+
+
+def display_market_snapshot(
+    snapshot,
+):
+
+    price = snapshot["price"]
+
+    st.subheader(
+        "📊 Market Intelligence"
+    )
+
+    col1, col2, col3, col4 = (
+        st.columns(4)
+    )
+
+    with col1:
+
+        st.metric(
+            "Price",
+            f"{price:.5f}",
+        )
+
+    with col2:
+
+        st.metric(
+            "RSI",
+            f"{snapshot['rsi']:.2f}",
+        )
+
+    with col3:
+
+        st.metric(
+            "ATR",
+            f"{snapshot['atr']:.5f}",
+        )
+
+    with col4:
+
+        st.metric(
+            "Structure",
+            snapshot["structure"],
+        )
+
+    st.subheader(
+        "📐 Technical Evidence"
+    )
+
+    tech_col1, tech_col2 = (
+        st.columns(2)
+    )
+
+    with tech_col1:
+
+        st.write(
+            f"EMA 20: "
+            f"{snapshot['ema_20']:.5f}"
+        )
+
+        st.write(
+            f"EMA 50: "
+            f"{snapshot['ema_50']:.5f}"
+        )
+
+        st.write(
+            f"EMA 200: "
+            f"{snapshot['ema_200']:.5f}"
+        )
+
+    with tech_col2:
+
+        st.write(
+            f"MACD: "
+            f"{snapshot['macd']:.5f}"
+        )
+
+        st.write(
+            f"MACD Signal: "
+            f"{snapshot['macd_signal']:.5f}"
+        )
+
+        st.write(
+            f"Volume Ratio: "
+            f"{snapshot['volume_ratio']:.2f}x"
+        )
+
+
+def show_analysis_engine():
+
+    st.subheader(
+        "🧠 Analysis Engine"
+    )
+
+    col1, col2, col3 = (
+        st.columns(3)
+    )
+
+    with col1:
+
+        st.markdown(
+            "### 📐 Technical Analysis"
+        )
+
+        st.write(
+            "EMA, RSI, MACD, ATR "
+            "and volume analysis."
+        )
+
+    with col2:
+
+        st.markdown(
+            "### 🧱 Smart Money Concepts"
+        )
+
+        st.write(
+            "Market structure, BOS, "
+            "liquidity and future SMC "
+            "modules."
+        )
+
+    with col3:
+
+        st.markdown(
+            "### 🤖 AI Reasoning"
+        )
+
+        st.write(
+            "GPT-5.6 Sol will reason "
+            "over deterministic "
+            "market evidence."
+    )
