@@ -114,3 +114,164 @@ if st.session_state.connected:
 else:
 
     st.info("Connect your IG Demo account to continue.")
+# ==========================================
+# CHUNK 2 — GOLD MARKET DISCOVERY
+# ==========================================
+
+st.session_state.setdefault("gold_epic", None)
+st.session_state.setdefault("gold_name", None)
+
+
+def ig_headers(version="1"):
+    return {
+        "X-IG-API-KEY": os.getenv("IG_API_KEY", ""),
+        "CST": st.session_state.cst,
+        "X-SECURITY-TOKEN": st.session_state.token,
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Version": version
+    }
+
+
+def find_gold():
+
+    if not st.session_state.connected:
+        st.error("Connect IG Demo first.")
+        return
+
+    try:
+
+        response = requests.get(
+            BASE + "/markets",
+            headers=ig_headers("1"),
+            params={"searchTerm": "Gold"},
+            timeout=20
+        )
+
+        if response.status_code != 200:
+            st.error("IG Gold search failed.")
+            st.code(response.text)
+            return
+
+        markets = response.json().get(
+            "markets", []
+        )
+
+        if not markets:
+            st.warning(
+                "IG returned no markets for Gold."
+            )
+            return
+
+        rows = []
+
+        for market in markets:
+
+            instrument = market.get(
+                "instrument", {}
+            )
+
+            snapshot = market.get(
+                "snapshot", {}
+            )
+
+            epic = instrument.get("epic")
+            name = instrument.get("name", "")
+            status = snapshot.get(
+                "marketStatus",
+                "UNKNOWN"
+            )
+
+            if epic:
+
+                rows.append({
+                    "EPIC": epic,
+                    "Name": name,
+                    "Status": status
+                })
+
+        if not rows:
+            st.warning(
+                "Gold search returned no usable EPIC."
+            )
+            return
+
+        st.subheader("🥇 IG Gold Markets")
+
+        st.dataframe(
+            rows,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # Prefer a tradeable Gold market
+        selected = None
+
+        for row in rows:
+
+            text = (
+                row["EPIC"] + " " +
+                row["Name"]
+            ).lower()
+
+            if (
+                ("gold" in text or "xau" in text)
+                and row["Status"] == "TRADEABLE"
+            ):
+                selected = row
+                break
+
+        # Fallback to first Gold/XAU result
+        if selected is None:
+
+            for row in rows:
+
+                text = (
+                    row["EPIC"] + " " +
+                    row["Name"]
+                ).lower()
+
+                if "gold" in text or "xau" in text:
+                    selected = row
+                    break
+
+        if selected is None:
+            st.warning(
+                "No Gold/XAU EPIC identified."
+            )
+            return
+
+        st.session_state.gold_epic = (
+            selected["EPIC"]
+        )
+
+        st.session_state.gold_name = (
+            selected["Name"]
+        )
+
+        st.success(
+            "🥇 Gold EPIC selected."
+        )
+
+        st.code(
+            st.session_state.gold_epic
+        )
+
+    except requests.exceptions.RequestException as e:
+
+        st.error(
+            f"Gold search network error: {e}"
+        )
+
+
+# ==========================================
+# BUTTON
+# ==========================================
+
+if st.session_state.connected:
+
+    if st.button(
+        "🥇 FIND GOLD",
+        use_container_width=True
+    ):
+        find_gold()
