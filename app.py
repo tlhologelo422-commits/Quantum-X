@@ -415,3 +415,189 @@ def create_candlestick_chart(
     )
 
     return chart
+def display_market_metrics(data):
+
+    latest = data.iloc[-1]
+
+    price = latest["close"]
+    rsi = latest["rsi"]
+    atr = latest["atr"]
+    volume_ratio = latest["volume_ratio"]
+
+    col1, col2, col3, col4 = (
+        st.columns(4)
+    )
+
+    with col1:
+
+        st.metric(
+            "Current Price",
+            f"{price:.5f}",
+        )
+
+    with col2:
+
+        st.metric(
+            "RSI",
+            f"{rsi:.2f}",
+        )
+
+    with col3:
+
+        st.metric(
+            "ATR",
+            f"{atr:.5f}",
+        )
+
+    with col4:
+
+        st.metric(
+            "Volume Ratio",
+            f"{volume_ratio:.2f}x",
+        )
+
+
+def display_technical_data(data):
+
+    latest = data.iloc[-1]
+
+    st.subheader(
+        "📐 Technical Evidence"
+    )
+
+    col1, col2 = (
+        st.columns(2)
+    )
+
+    with col1:
+
+        st.write(
+            f"**EMA 20:** "
+            f"{latest['ema_20']:.5f}"
+        )
+
+        st.write(
+            f"**EMA 50:** "
+            f"{latest['ema_50']:.5f}"
+        )
+
+        st.write(
+            f"**EMA 200:** "
+            f"{latest['ema_200']:.5f}"
+        )
+
+    with col2:
+
+        st.write(
+            f"**MACD:** "
+            f"{latest['macd']:.5f}"
+        )
+
+        st.write(
+            f"**MACD Signal:** "
+            f"{latest['macd_signal']:.5f}"
+        )
+
+        st.write(
+            f"**Volume:** "
+            f"{latest['volume']:.0f}"
+        )
+
+
+def display_volume_chart(data):
+
+    st.subheader(
+        "📊 Volume"
+    )
+
+    volume_colors = []
+
+    for index in range(
+        len(data)
+    ):
+
+        if (
+            data["close"].iloc[index]
+            >=
+            data["open"].iloc[index]
+        ):
+
+            volume_colors.append(
+                "#00e676"
+            )
+
+        else:
+
+            volume_colors.append(
+                "#ff5252"
+            )
+
+    volume_chart = go.Figure()
+
+    volume_chart.add_trace(
+        go.Bar(
+            x=data["timestamp"],
+            y=data["volume"],
+            marker_color=volume_colors,
+            name="Volume",
+        )
+    )
+
+    volume_chart.update_layout(
+        template="plotly_dark",
+        height=250,
+        xaxis_rangeslider_visible=False,
+        margin=dict(
+            l=20,
+            r=20,
+            t=20,
+            b=20,
+        ),
+        showlegend=False,
+    )
+
+    st.plotly_chart(
+        volume_chart,
+        use_container_width=True,
+    )
+
+
+def show_engine_status():
+
+    st.subheader(
+        "🧠 Quantum X Analysis Engine"
+    )
+
+    col1, col2, col3 = (
+        st.columns(3)
+    )
+
+    with col1:
+
+        st.markdown(
+            "### 📐 Technical Analysis"
+        )
+
+        st.success(
+            "ONLINE"
+        )
+
+    with col2:
+
+        st.markdown(
+            "### 🧱 Smart Money Concepts"
+        )
+
+        st.warning(
+            "NEXT MODULE"
+        )
+
+    with col3:
+
+        st.markdown(
+            "### 🤖 AI Reasoning"
+        )
+
+        st.info(
+            "GPT-5.6 Sol • NEXT"
+        )
