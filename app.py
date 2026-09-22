@@ -45,3 +45,65 @@ if st.button("CONNECT IG DEMO"):
 
     if connect():
         st.success("🟢 IG CONNECTED")
+def headers():
+    return {
+        "X-IG-API-KEY": os.getenv("IG_API_KEY"),
+        "CST": st.session_state.cst,
+        "X-SECURITY-TOKEN": st.session_state.token,
+        "Accept": "application/json",
+        "Version": "1"
+    }
+
+
+def find_gold():
+
+    r = requests.get(
+        BASE + "/markets",
+        headers=headers(),
+        params={"searchTerm": "Gold"},
+        timeout=20
+    )
+
+    if r.status_code != 200:
+        st.error("Gold search failed")
+        st.code(r.text)
+        return
+
+    markets = r.json().get("markets", [])
+
+    st.subheader("🥇 IG Gold Markets")
+
+    if not markets:
+        st.warning("IG returned no Gold markets.")
+        return
+
+    rows = []
+
+    for market in markets:
+
+        instrument = market.get(
+            "instrument", {}
+        )
+
+        snapshot = market.get(
+            "snapshot", {}
+        )
+
+        rows.append({
+            "EPIC": instrument.get("epic"),
+            "Name": instrument.get("name"),
+            "Status": snapshot.get("marketStatus")
+        })
+
+    st.dataframe(
+        pd.DataFrame(rows),
+        use_container_width=True,
+        hide_index=True
+    )
+
+
+if st.session_state.cst:
+
+    if st.button("🥇 FIND GOLD"):
+
+        find_gold()
