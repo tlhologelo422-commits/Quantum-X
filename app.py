@@ -182,3 +182,181 @@ def fetch_yahoo_data(
             None,
             str(error),
 )
+def detect_swing_points(
+    data,
+    left_bars=3,
+    right_bars=3,
+):
+
+    df = data.copy()
+
+    df["swing_high"] = False
+    df["swing_low"] = False
+
+    for index in range(
+        left_bars,
+        len(df) - right_bars,
+    ):
+
+        current_high = df.loc[
+            index,
+            "high",
+        ]
+
+        current_low = df.loc[
+            index,
+            "low",
+        ]
+
+        left_highs = df.loc[
+            index - left_bars:index - 1,
+            "high",
+        ]
+
+        right_highs = df.loc[
+            index + 1:index + right_bars,
+            "high",
+        ]
+
+        left_lows = df.loc[
+            index - left_bars:index - 1,
+            "low",
+        ]
+
+        right_lows = df.loc[
+            index + 1:index + right_bars,
+            "low",
+        ]
+
+        is_swing_high = (
+            current_high > left_highs.max()
+            and
+            current_high > right_highs.max()
+        )
+
+        is_swing_low = (
+            current_low < left_lows.min()
+            and
+            current_low < right_lows.min()
+        )
+
+        if is_swing_high:
+
+            df.loc[
+                index,
+                "swing_high",
+            ] = True
+
+        if is_swing_low:
+
+            df.loc[
+                index,
+                "swing_low",
+            ] = True
+
+    return df
+
+
+def classify_structure(
+    data,
+):
+
+    df = data.copy()
+
+    df["structure"] = ""
+    df["structure_price"] = float("nan")
+
+    last_swing_high = None
+    last_swing_low = None
+
+    previous_high = None
+    previous_low = None
+
+    for index in range(
+        len(df)
+    ):
+
+        if df.loc[
+            index,
+            "swing_high",
+        ]:
+
+            current_high = df.loc[
+                index,
+                "high",
+            ]
+
+            if previous_high is not None:
+
+                if current_high > previous_high:
+
+                    df.loc[
+                        index,
+                        "structure",
+                    ] = "HH"
+
+                elif current_high < previous_high:
+
+                    df.loc[
+                        index,
+                        "structure",
+                    ] = "LH"
+
+            previous_high = current_high
+            last_swing_high = current_high
+
+        if df.loc[
+            index,
+            "swing_low",
+        ]:
+
+            current_low = df.loc[
+                index,
+                "low",
+            ]
+
+            if previous_low is not None:
+
+                if current_low > previous_low:
+
+                    df.loc[
+                        index,
+                        "structure",
+                    ] = "HL"
+
+                elif current_low < previous_low:
+
+                    df.loc[
+                        index,
+                        "structure",
+                    ] = "LL"
+
+            previous_low = current_low
+            last_swing_low = current_low
+
+        if (
+            df.loc[
+                index,
+                "structure",
+            ]
+            != ""
+        ):
+
+            if df.loc[
+                index,
+                "structure",
+            ] in ["HH", "LH"]:
+
+                df.loc[
+                    index,
+                    "structure_price",
+                ] = last_swing_high
+
+            else:
+
+                df.loc[
+                    index,
+                    "structure_price",
+                ] = last_swing_low
+
+    return df
