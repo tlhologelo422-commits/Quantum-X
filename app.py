@@ -717,3 +717,114 @@ if (
         st.session_state[
             "data_error"
         ] = ""
+data = st.session_state["market_data"]
+
+
+if data is None:
+
+    st.error(
+        "❌ Market data could not be loaded."
+    )
+
+    if st.session_state["data_error"]:
+
+        st.warning(
+            st.session_state["data_error"]
+        )
+
+else:
+
+    analysed_data = calculate_indicators(
+        data
+    )
+
+    st.success(
+        f"✅ {selected_market} "
+        f"{selected_timeframe} data loaded"
+    )
+
+
+    chart = create_candlestick_chart(
+        analysed_data,
+        selected_market,
+        selected_timeframe,
+    )
+
+    st.plotly_chart(
+        chart,
+        use_container_width=True,
+    )
+
+
+    display_market_metrics(
+        analysed_data
+    )
+
+
+    display_volume_chart(
+        analysed_data
+    )
+
+
+    display_technical_data(
+        analysed_data
+    )
+
+
+    st.subheader(
+        "🕯️ Recent Candles"
+    )
+
+
+    recent_data = (
+        analysed_data[
+            [
+                "timestamp",
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+            ]
+        ]
+        .tail(10)
+        .sort_values(
+            "timestamp",
+            ascending=False,
+        )
+    )
+
+
+    st.dataframe(
+        recent_data,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
+show_engine_status()
+
+
+st.subheader(
+    "🎯 AI Signal"
+)
+
+
+st.info(
+    "AI signal generation will be connected "
+    "after the SMC and confluence engines "
+    "are completed."
+)
+
+
+st.divider()
+
+
+st.caption(
+    "QUANTUM X PRO • "
+    "Yahoo Finance • "
+    "OHLCV • "
+    "Candlestick Engine • "
+    "IG Broker Layer • "
+    "GPT-5.6 Sol"
+)
