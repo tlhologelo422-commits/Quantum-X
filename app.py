@@ -44,8 +44,7 @@ def connect():
 if st.button("CONNECT IG DEMO"):
 
     if connect():
-        st.success("🟢 IG CONNECTED")
-def headers():
+        st.success("🟢 IG CONNECTED")def headers():
     return {
         "X-IG-API-KEY": os.getenv("IG_API_KEY"),
         "CST": st.session_state.cst,
@@ -57,48 +56,73 @@ def headers():
 
 def find_gold():
 
-    r = requests.get(
-        BASE + "/markets",
-        headers=headers(),
-        params={"searchTerm": "Gold"},
-        timeout=20
-    )
+    search_terms = [
+        "XAU",
+        "XAUUSD",
+        "Spot Gold",
+        "Gold"
+    ]
 
-    if r.status_code != 200:
-        st.error("Gold search failed")
-        st.code(r.text)
-        return
+    for term in search_terms:
 
-    markets = r.json().get("markets", [])
-
-    st.subheader("🥇 IG Gold Markets")
-
-    if not markets:
-        st.warning("IG returned no Gold markets.")
-        return
-
-    rows = []
-
-    for market in markets:
-
-        instrument = market.get(
-            "instrument", {}
+        response = requests.get(
+            BASE + "/markets",
+            headers=headers(),
+            params={"searchTerm": term},
+            timeout=20
         )
 
-        snapshot = market.get(
-            "snapshot", {}
-        )
+        if response.status_code != 200:
+            continue
 
-        rows.append({
-            "EPIC": instrument.get("epic"),
-            "Name": instrument.get("name"),
-            "Status": snapshot.get("marketStatus")
-        })
+        markets = response.json().get("markets", [])
 
-    st.dataframe(
-        pd.DataFrame(rows),
-        use_container_width=True,
-        hide_index=True
+        if not markets:
+            continue
+
+        rows = []
+
+        for market in markets:
+
+            instrument = market.get(
+                "instrument",
+                {}
+            )
+
+            snapshot = market.get(
+                "snapshot",
+                {}
+            )
+
+            epic = instrument.get("epic")
+
+            if epic:
+
+                rows.append({
+                    "EPIC": epic,
+                    "Name": instrument.get("name"),
+                    "Status": snapshot.get(
+                        "marketStatus"
+                    )
+                })
+
+        if rows:
+
+            st.subheader(
+                f"🥇 IG Results: {term}"
+            )
+
+            st.dataframe(
+                pd.DataFrame(rows),
+                use_container_width=True,
+                hide_index=True
+            )
+
+            return
+
+
+    st.error(
+        "No Gold/XAU markets found."
     )
 
 
