@@ -44,7 +44,8 @@ def connect():
 if st.button("CONNECT IG DEMO"):
 
     if connect():
-        st.success("🟢 IG CONNECTED")def headers():
+        st.success("🟢 IG CONNECTED")
+        def headers():
     return {
         "X-IG-API-KEY": os.getenv("IG_API_KEY"),
         "CST": st.session_state.cst,
