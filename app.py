@@ -568,3 +568,244 @@ def show_analysis_engine():
             "over deterministic "
             "market evidence."
     )
+st.title("📈 QUANTUM X PRO")
+
+st.caption(
+    "AI-Powered Market Analysis • "
+    "Yahoo Finance Data • Smart Money Concepts"
+)
+
+st.success("● SYSTEM ONLINE")
+
+
+with st.sidebar:
+
+    st.header("⚙️ Market Settings")
+
+    selected_market = st.selectbox(
+        "Market",
+        list(MARKETS.keys()),
+        index=list(MARKETS.keys()).index(
+            st.session_state["selected_market"]
+        ),
+    )
+
+    selected_timeframe = st.selectbox(
+        "Setup Timeframe",
+        list(TIMEFRAMES.keys()),
+        index=list(TIMEFRAMES.keys()).index(
+            st.session_state["selected_timeframe"]
+        ),
+    )
+
+    analysis_mode = st.radio(
+        "Analysis Mode",
+        [
+            "Manual Analysis",
+            "Automatic Scanner",
+        ],
+    )
+
+    st.divider()
+
+    st.subheader("🔌 Data Layer")
+
+    st.success("Yahoo Finance")
+
+    st.info(
+        "IG remains available for the "
+        "broker layer."
+    )
+
+
+st.session_state["selected_market"] = (
+    selected_market
+)
+
+st.session_state["selected_timeframe"] = (
+    selected_timeframe
+)
+
+
+col1, col2, col3, col4 = (
+    st.columns(4)
+)
+
+with col1:
+
+    st.metric(
+        "Market",
+        selected_market,
+    )
+
+with col2:
+
+    st.metric(
+        "Timeframe",
+        selected_timeframe,
+    )
+
+with col3:
+
+    st.metric(
+        "Data Provider",
+        "Yahoo",
+    )
+
+with col4:
+
+    st.metric(
+        "AI Engine",
+        "GPT-5.6 Sol",
+    )
+
+
+st.subheader("📊 Market Chart")
+
+render_tradingview_chart(
+    selected_market,
+    selected_timeframe,
+)
+
+
+st.subheader("🔎 Market Analysis")
+
+scan_button = st.button(
+    "🔍 Scan Market",
+    use_container_width=True,
+)
+
+
+if scan_button:
+
+    ticker = MARKETS[
+        selected_market
+    ]["yahoo"]
+
+    interval = TIMEFRAMES[
+        selected_timeframe
+    ]
+
+    with st.spinner(
+        "Fetching market candles..."
+    ):
+
+        dataframe = get_yahoo_candles(
+            ticker_symbol=ticker,
+            interval=interval,
+            period="30d",
+        )
+
+    if dataframe is None:
+
+        st.error(
+            "Could not retrieve Yahoo Finance "
+            "market data."
+        )
+
+        error_message = (
+            st.session_state.get(
+                "data_error",
+                "",
+            )
+        )
+
+        if error_message:
+
+            st.caption(
+                f"Data error: {error_message}"
+            )
+
+    elif len(dataframe) < 50:
+
+        st.warning(
+            "Yahoo returned too few candles "
+            "for reliable analysis."
+        )
+
+    else:
+
+        st.session_state[
+            "yahoo_data"
+        ] = dataframe
+
+        with st.spinner(
+            "Calculating indicators..."
+        ):
+
+            analysed_data = (
+                calculate_indicators(
+                    dataframe
+                )
+            )
+
+        snapshot = (
+            build_market_snapshot(
+                analysed_data
+            )
+        )
+
+        display_market_snapshot(
+            snapshot
+        )
+
+        st.success(
+            f"Analysis complete — "
+            f"{len(dataframe)} candles loaded."
+        )
+
+        st.subheader(
+            "🕯️ Recent Market Data"
+        )
+
+        display_data = (
+            analysed_data[
+                [
+                    "timestamp",
+                    "open",
+                    "high",
+                    "low",
+                    "close",
+                    "volume",
+                ]
+            ]
+            .tail(10)
+            .sort_values(
+                "timestamp",
+                ascending=False,
+            )
+        )
+
+        st.dataframe(
+            display_data,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+else:
+
+    st.info(
+        "Select a market and press "
+        "Scan Market to load live candles."
+    )
+
+
+show_analysis_engine()
+
+
+st.subheader("🎯 AI Signal")
+
+st.info(
+    "AI signal generation will be connected "
+    "after the deterministic market engine "
+    "is verified."
+)
+
+
+st.divider()
+
+st.caption(
+    "QUANTUM X PRO • Yahoo Finance Data • "
+    "TradingView Visualization • "
+    "IG Broker Layer • GPT-5.6 Sol"
+        )
