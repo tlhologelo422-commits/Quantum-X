@@ -3,5 +3,6 @@ pandas
 numpy
 requests
 Pillow
+google-genai
 google-generativeai
 groq
