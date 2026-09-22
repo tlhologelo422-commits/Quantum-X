@@ -50,25 +50,21 @@ def get_accounts():
   if r.status_code!=200: return None
   return r.json()
  except: return None
-
 def place_with_debug(epic,direction,size,sl=None,tp=None):
  url=f"{IG}/positions/otc"
- # Try 1: with SL/TP
  payload={"epic":epic,"expiry":"-","direction":direction,"size":str(size),"orderType":"MARKET","currencyCode":"USD","forceOpen":True,"guaranteedStop":False}
  if sl: payload["stopLevel"]=str(round(float(sl),1))
  if tp: payload["limitLevel"]=str(round(float(tp),1))
  try:
   r=requests.post(url,headers=hdrs("2"),json=payload,timeout=15)
   if r.status_code==200:
-   return r.status_code,r.text, "with SL/TP OK"
-  # If fails, try without SL/TP (most common IG reject reason = SL too close)
+   return r.status_code,r.text,"with SL/TP OK"
   payload2={"epic":epic,"expiry":"-","direction":direction,"size":str(size),"orderType":"MARKET","currencyCode":"USD","forceOpen":True,"guaranteedStop":False}
   r2=requests.post(url,headers=hdrs("2"),json=payload2,timeout=15)
   if r2.status_code==200:
-   return r2.status_code, r2.text + f" | First fail {r.text[:200]} - placed WITHOUT SL/TP", "without SL/TP OK"
+   return r2.status_code, r2.text + f" | First fail {r.text[:200]}", "without SL/TP OK"
   return r2.status_code, f"Both failed | With SL: {r.text[:300]} | Without SL: {r2.text[:300]}", "both failed"
- except Exception as e: return 0,str(e), "exception"
-
+ except Exception as e: return 0,str(e),"exception"
 def close_all_for_epic(epic):
  pos=get_positions(); this=[p for p in pos if p.get("market",{}).get("epic")==epic]; res=[]
  for p in this:
@@ -122,7 +118,7 @@ def supertrend(df, period=10, multiplier=3.0):
    if direction.iloc[i]==-1 and st_line.iloc[i] > st_line.iloc[i-1]: st_line.iloc[i]=st_line.iloc[i-1]
  df["supertrend"]=st_line; df["st_dir"]=direction; df["atr"]=atr
  return df
-
+# --- END OF PART 1 ---
 def instant_signal(df):
  if df is None or len(df)<30: return "WAIT",None,None,None,None,None,0,0,"no df"
  df=supertrend(df,10,3.0)
@@ -133,12 +129,10 @@ def instant_signal(df):
  look=df.tail(20); sh=look["high"].max(); slw=look["low"].min(); rng=sh-slw
  if bias=="BUY":
   zt=sh - rng*0.2; zb=sh - rng*0.3
-  sl=last["close"]-last["atr"]*2.5
-  tp=last["close"]+last["atr"]*3.5
+  sl=last["close"]-last["atr"]*2.5; tp=last["close"]+last["atr"]*3.5
  else:
   zb=slw + rng*0.2; zt=slw + rng*0.3
-  sl=last["close"]+last["atr"]*2.5
-  tp=last["close"]-last["atr"]*3.5
+  sl=last["close"]+last["atr"]*2.5; tp=last["close"]-last["atr"]*3.5
  return bias,sl,tp,zt,zb,df,sh,slw,"instant"
 
 with st.sidebar:
@@ -173,10 +167,102 @@ epics=[x["epic"] for x in st.session_state["mkts"]]
 labs=[f"{x['epic']} | {x['name']}" for x in st.session_state["mkts"]]
 idx=st.selectbox("Pick EPIC",range(len(epics)),format_func=lambda i: labs[i]); epic=epics[idx]
 
-# PnL DASHBOARD AT TOP
 st.divider()
 st.subheader("💰 LIVE PnL DASHBOARD - No need IG app")
 acc=get_accounts()
 pos=get_positions()
 if acc:
- try
+ try:
+  bal=acc.get("accounts",[])[0].get("balance",{}).get("balance",0)
+  st.metric("Account Balance", f"${bal}")
+ except: pass
+
+if pos:
+ total_pnl=0
+ for p in pos:
+  po=p.get("position",{}); mkt_name=p.get("market",{}).get("instrumentName","")
+  epic_p=p.get("market",{}).get("epic",""); direction=po.get("direction",""); size_p=po.get("size","")
+  level=po.get("openLevel",""); pnl=po.get("profit",0) or 0
+  try: total_pnl+=float(pnl)
+  except: pass
+  color="green" if float(pnl)>=0 else "red"
+  st.write(f"**{mkt_name}** {epic_p} | {direction} {size_p} @ {level} | PnL: :{color}[${pnl}]")
+ st.metric("Total Open PnL", f"${total_pnl:.2f}", delta=f"{total_pnl:.2f}")
+ this=[p for p in pos if p.get("market",{}).get("epic")==epic]
+ if this: st.info(f"{len(this)} open on {epic}")
+ else: st.write(f"No open on {epic} - ready")
+else:
+ st.write("No open positions - ready to scalp")
+
+st.divider()
+try:
+ sym=TV[mkt]
+ components.html(f"""<div id="tv" style="height:350px;"></div><script src="https://s3.tradingview.com/tv.js"></script><script>new TradingView.widget({{"autosize":true,"symbol":"{sym}","interval":"5","timezone":"Africa/Johannesburg","theme":"dark","style":"1","container_id":"tv"}});</script>""",height=370)
+except: pass
+
+st.subheader(f"Scalper {mkt} - {epic}")
+b1,b2,b3,b4,b5=st.columns(5)
+with b1: scan=st.button("TRADE NOW",use_container_width=True,type="primary")
+with b2: force=st.button("FORCE TRADE (no SL)",use_container_width=True)
+with b3: auto=st.button("START AUTO",use_container_width=True)
+with b4: stop=st.button("STOP",use_container_width=True)
+with b5: close_btn=st.button("CLOSE ALL",use_container_width=True)
+
+if close_btn:
+ r=close_all_for_epic(epic); st.success(f"Closed {r}"); st.balloons(); time.sleep(1); st.rerun()
+if stop: st.session_state["running"]=False; st.warning("Stopped")
+
+def run_trade(force_no_sl=False):
+ ysym=YAHOO[mkt]
+ df=get_yahoo_candles(ysym)
+ if df is None: st.error("Yahoo no candles"); return
+ bias,sl,tp,zt,zb,full,sh,slw,msg=instant_signal(df)
+ if full is None: st.error(f"Calc fail {msg}"); return
+ last=full.iloc[-1]
+ c1,c2,c3,c4=st.columns(4)
+ c1.metric("Price",f"{last['close']:.2f}"); c2.metric("Bias", "BULL BUY" if last["st_dir"]==1 else "BEAR SELL")
+ c3.metric("ATR", f"{last['atr']:.2f}"); c4.metric("Signal", bias)
+ st.write(f"Fib Block {zb:.2f}-{zt:.2f} | SL {sl:.2f} TP {tp:.2f}")
+ now=time.time()
+ if now - st.session_state["last_trade_time"] < 20:
+  st.warning(f"Wait {int(20-(now - st.session_state['last_trade_time']))}s anti-spam")
+ else:
+  pos=get_positions(); this=[p for p in pos if p.get("market",{}).get("epic")==epic]
+  if this:
+   st.warning(f"Already have trade - close first")
+  else:
+   if force_no_sl: sl=None; tp=None; st.warning("FORCING WITHOUT SL/TP")
+   code,txt,method=place_with_debug(epic,bias,size,sl,tp)
+   st.write(f"Debug: {method}"); st.write(f"IG {code}: {txt[:500]}")
+   if code==200:
+    st.success(f"✅ TRADE PLACED {bias} {size}"); st.session_state["last_trade_time"]=now; st.balloons()
+   else:
+    st.error(f"❌ Failed {code}"); st.session_state["last_error"]=txt
+ if full is not None:
+  st.line_chart(full.set_index("time")[["close","supertrend"]].tail(100))
+
+if scan: run_trade(force_no_sl=False)
+if force: run_trade(force_no_sl=True)
+if auto:
+ st.session_state["running"]=True
+ run_trade(force_no_sl=False)
+
+if st.session_state["running"]:
+ st.info("BOT AUTO ONLINE - Trading every 30s if no position")
+ ph=st.empty()
+ while st.session_state["running"]:
+  time.sleep(30)
+  df=get_yahoo_candles(YAHOO[mkt])
+  if df is None: continue
+  bias,sl,tp,zt,zb,full,sh,slw,msg=instant_signal(df)
+  if full is None: continue
+  pos=get_positions(); this=[p for p in pos if p.get("market",{}).get("epic")==epic]
+  if this:
+   with ph.container(): st.write(f"{time.strftime('%H:%M:%S')} Has position - waiting")
+   continue
+  now=time.time()
+  if now - st.session_state["last_trade_time"] < 90: continue
+  code,txt,method=place_with_debug(epic,bias,size,sl,tp)
+  with ph.container(): st.write(f"{time.strftime('%H:%M:%S')} AUTO {bias} {full.iloc[-1]['close']:.2f} {method} -> {code}")
+  st.session_state["last_trade_time"]=now
+  st.rerun()
