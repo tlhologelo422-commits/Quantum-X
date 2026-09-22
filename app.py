@@ -256,7 +256,7 @@ st.divider()
 st.subheader("DUAL AI SCANNER - FREE")
 up=st.file_uploader("Upload chart",type=["png","jpg","jpeg"])
 if up:
- st.image(up,caption="Chart",use_column_width=True)
+ st.image(up,caption="Chart",use_container_width=True)
  if st.button("SCAN WITH DUAL FREE AI",type="primary",use_container_width=True):
   _,_,_,sec_gem,sec_groq=get_creds()
   gk=sec_gem or gem_input
