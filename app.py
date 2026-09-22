@@ -360,3 +360,106 @@ def classify_structure(
                 ] = last_swing_low
 
     return df
+def detect_structure_events(
+    data,
+):
+
+    df = data.copy()
+
+    df["bos"] = ""
+    df["choch"] = ""
+
+    last_swing_high = None
+    last_swing_low = None
+
+    market_bias = "NEUTRAL"
+
+    high_broken = False
+    low_broken = False
+
+    for index in range(
+        len(df)
+    ):
+
+        if df.loc[
+            index,
+            "swing_high",
+        ]:
+
+            last_swing_high = df.loc[
+                index,
+                "high",
+            ]
+
+            high_broken = False
+
+        if df.loc[
+            index,
+            "swing_low",
+        ]:
+
+            last_swing_low = df.loc[
+                index,
+                "low",
+            ]
+
+            low_broken = False
+
+        current_close = df.loc[
+            index,
+            "close",
+        ]
+
+        if (
+            last_swing_high is not None
+            and
+            current_close > last_swing_high
+            and
+            not high_broken
+        ):
+
+            if market_bias == "BEARISH":
+
+                df.loc[
+                    index,
+                    "choch",
+                ] = "BULLISH CHoCH"
+
+            else:
+
+                df.loc[
+                    index,
+                    "bos",
+                ] = "BULLISH BOS"
+
+            market_bias = "BULLISH"
+            high_broken = True
+
+        if (
+            last_swing_low is not None
+            and
+            current_close < last_swing_low
+            and
+            not low_broken
+        ):
+
+            if market_bias == "BULLISH":
+
+                df.loc[
+                    index,
+                    "choch",
+                ] = "BEARISH CHoCH"
+
+            else:
+
+                df.loc[
+                    index,
+                    "bos",
+                ] = "BEARISH BOS"
+
+            market_bias = "BEARISH"
+            low_broken = True
+
+    df["market_bias"] = market_bias
+
+    return df
