@@ -1,5 +1,7 @@
-streamlit
-pandas
-numpy
-requests
-yfinance
+streamlit>=1.50.0
+pandas>=2.2.0
+numpy<2.0.0
+requests>=2.32.0
+yfinance==0.2.38
+lxml
+Pillow>=10.0.0
