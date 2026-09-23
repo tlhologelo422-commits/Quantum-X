@@ -1081,4 +1081,11 @@ if (
 
     st.markdown(
         f"""
-  
+        <script>
+        setTimeout(function() {{
+            window.parent.location.reload();
+        }}, {POLL_SECONDS * 1000});
+        </script>
+        """,
+        unsafe_allow_html=True,
+    )
