@@ -1,8 +1,3 @@
-streamlit
-pandas
-numpy
-requests
-Pillow
-google-genai
-google-generativeai
-groq
+streamlit>=1.50.0
+pandas>=2.2.0
+requests>=2.32.0
