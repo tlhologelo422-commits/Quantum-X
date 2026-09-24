@@ -790,3 +790,1048 @@ def bearish_confirmation(
         return " + ".join(patterns)
 
     return None
+# ============================================================
+# STRATEGY
+# ============================================================
+
+def make_signal():
+
+    df = bars_dataframe()
+
+    if len(df) < MIN_COMPLETED_BARS + 1:
+
+        return (
+            "WAIT",
+            f"Building M5 structure: "
+            f"{max(0, len(df) - 1)}/"
+            f"{MIN_COMPLETED_BARS} completed bars.",
+            None,
+            None,
+        )
+
+    completed = df.iloc[:-1].copy()
+
+    if len(completed) < MIN_COMPLETED_BARS:
+
+        return (
+            "WAIT",
+            f"Waiting for "
+            f"{MIN_COMPLETED_BARS} completed M5 candles.",
+            None,
+            None,
+        )
+
+    current_price = (
+        st.session_state["last_price"]
+    )
+
+    if current_price is None:
+
+        return (
+            "WAIT",
+            "Waiting for live price.",
+            None,
+            None,
+        )
+
+    atr = calculate_atr(
+        completed,
+        period=5,
+    )
+
+    if atr is None or atr <= 0:
+
+        return (
+            "WAIT",
+            "ATR is not ready.",
+            None,
+            None,
+        )
+
+    support_levels, resistance_levels = (
+        find_levels(completed)
+    )
+
+    tolerance = max(
+        atr * 0.8,
+        current_price * 0.00025,
+    )
+
+    support = nearest_level(
+        current_price,
+        support_levels,
+        tolerance,
+    )
+
+    resistance = nearest_level(
+        current_price,
+        resistance_levels,
+        tolerance,
+    )
+
+    prev = completed.iloc[-2]
+    curr = completed.iloc[-1]
+
+    bullish_pattern = bullish_confirmation(
+        prev,
+        curr,
+    )
+
+    bearish_pattern = bearish_confirmation(
+        prev,
+        curr,
+    )
+
+    if (
+        support is not None
+        and bullish_pattern
+    ):
+
+        reason = (
+            f"BUY: price near support "
+            f"{support:.2f} + "
+            f"{bullish_pattern}"
+        )
+
+        return (
+            "BUY",
+            reason,
+            support,
+            atr,
+        )
+
+    if (
+        resistance is not None
+        and bearish_pattern
+    ):
+
+        reason = (
+            f"SELL: price near resistance "
+            f"{resistance:.2f} + "
+            f"{bearish_pattern}"
+        )
+
+        return (
+            "SELL",
+            reason,
+            resistance,
+            atr,
+        )
+
+    return (
+        "WAIT",
+        "No confirmed support/resistance setup.",
+        support,
+        atr,
+    )
+
+
+# ============================================================
+# IG POSITIONS
+# ============================================================
+
+def get_matching_positions():
+
+    try:
+
+        response = requests.get(
+            f"{IG_BASE}/positions",
+            headers=headers("2"),
+            timeout=15,
+        )
+
+        if response.status_code != 200:
+
+            return (
+                None,
+                api_error_text(response),
+            )
+
+        data = response.json()
+
+        positions = data.get(
+            "positions",
+            [],
+        )
+
+        matches = []
+
+        target_epic = (
+            st.session_state["epic"]
+        )
+
+        for item in positions:
+
+            position = item.get(
+                "position",
+                {},
+            )
+
+            epic = position.get(
+                "epic",
+                "",
+            )
+
+            if epic == target_epic:
+                matches.append(item)
+
+        return matches, ""
+
+    except requests.RequestException as exc:
+
+        return None, str(exc)
+
+
+# ============================================================
+# ORDER EXECUTION
+# ============================================================
+
+def place_order(
+    direction,
+    atr,
+):
+
+    if direction not in (
+        "BUY",
+        "SELL",
+    ):
+
+        return (
+            False,
+            "Invalid direction.",
+        )
+
+    size = float(
+        st.session_state["size"]
+    )
+
+    if size <= 0:
+
+        return (
+            False,
+            "Trade size must be greater than zero.",
+        )
+
+    stop_distance = float(
+        st.session_state[
+            "stop_distance"
+        ]
+    )
+
+    if atr is not None and atr > 0:
+
+        stop_distance = max(
+            stop_distance,
+            atr,
+        )
+
+    rr = float(
+        st.session_state["rr"]
+    )
+
+    limit_distance = (
+        stop_distance * rr
+    )
+
+    payload = {
+        "epic": st.session_state["epic"],
+        "direction": direction,
+        "size": size,
+        "orderType": "MARKET",
+        "currencyCode": "USD",
+        "forceOpen": True,
+        "guaranteedStop": False,
+        "stopDistance": round(
+            stop_distance,
+            2,
+        ),
+        "limitDistance": round(
+            limit_distance,
+            2,
+        ),
+    }
+
+    try:
+
+        response = requests.post(
+            f"{IG_BASE}/positions/otc",
+            headers=headers("2"),
+            json=payload,
+            timeout=15,
+        )
+
+        if response.status_code not in (
+            200,
+            201,
+        ):
+
+            return (
+                False,
+                f"Order failed "
+                f"({response.status_code}): "
+                f"{api_error_text(response)}",
+            )
+
+        try:
+            data = response.json()
+        except Exception:
+            data = {}
+
+        deal_reference = data.get(
+            "dealReference",
+            "unknown",
+        )
+
+        deal_status = data.get(
+            "dealStatus",
+            "UNKNOWN",
+        )
+
+        st.session_state[
+            "last_order"
+        ] = {
+            "time": utc_now().isoformat(),
+            "direction": direction,
+            "size": size,
+            "stop": stop_distance,
+            "limit": limit_distance,
+            "dealReference": deal_reference,
+            "dealStatus": deal_status,
+        }
+
+        return (
+            True,
+            f"{direction} order submitted. "
+            f"Deal: {deal_reference}",
+        )
+
+    except requests.RequestException as exc:
+
+        return (
+            False,
+            f"Order connection error: {exc}",
+        )
+
+
+# ============================================================
+# BOT ENGINE
+# ============================================================
+
+def run_bot_cycle():
+
+    reset_daily_counter_if_needed()
+
+    if not st.session_state["connected"]:
+        return
+
+    if not st.session_state["bot_running"]:
+        return
+
+    price, bid, offer, market_status = (
+        get_current_price()
+    )
+
+    if price is None:
+
+        st.session_state[
+            "last_error"
+        ] = str(market_status)
+
+        return
+
+    st.session_state[
+        "last_price"
+    ] = price
+
+    st.session_state[
+        "last_bid"
+    ] = bid
+
+    st.session_state[
+        "last_offer"
+    ] = offer
+
+    st.session_state[
+        "market_status"
+    ] = str(market_status)
+
+    st.session_state[
+        "last_tick"
+    ] = utc_now()
+
+    add_tick(price)
+
+    signal, reason, level, atr = (
+        make_signal()
+    )
+
+    st.session_state[
+        "last_signal"
+    ] = signal
+
+    st.session_state[
+        "last_reason"
+    ] = reason
+
+    st.session_state[
+        "last_error"
+    ] = ""
+
+    if signal not in (
+        "BUY",
+        "SELL",
+    ):
+        return
+
+    if (
+        st.session_state[
+            "trade_count"
+        ]
+        >= MAX_TRADES_PER_DAY
+    ):
+
+        st.session_state[
+            "last_signal"
+        ] = "LIMIT"
+
+        st.session_state[
+            "last_reason"
+        ] = (
+            "Daily maximum of 10 trades reached."
+        )
+
+        return
+
+    positions, error = (
+        get_matching_positions()
+    )
+
+    if positions is None:
+
+        st.session_state[
+            "last_error"
+        ] = (
+            "Position check failed: "
+            + error
+        )
+
+        return
+
+    if len(positions) >= MAX_OPEN_POSITIONS:
+
+        st.session_state[
+            "last_signal"
+        ] = "WAIT"
+
+        st.session_state[
+            "last_reason"
+        ] = (
+            "Existing XAU/USD position is open."
+        )
+
+        return
+
+    df = bars_dataframe()
+
+    if df.empty:
+        return
+
+    current_bar = df.iloc[-1]["time"]
+
+    current_bar_key = pd.Timestamp(
+        current_bar
+    ).isoformat()
+
+    if (
+        st.session_state[
+            "last_trade_bar"
+        ]
+        == current_bar_key
+    ):
+
+        st.session_state[
+            "last_signal"
+        ] = "WAIT"
+
+        st.session_state[
+            "last_reason"
+        ] = (
+            "Already traded this M5 candle."
+        )
+
+        return
+
+    success, message = place_order(
+        signal,
+        atr,
+    )
+
+    if success:
+
+        st.session_state[
+            "trade_count"
+        ] += 1
+
+        st.session_state[
+            "last_trade_bar"
+        ] = current_bar_key
+
+        st.session_state[
+            "last_signal"
+        ] = signal
+
+        st.session_state[
+            "last_reason"
+        ] = message
+
+        st.session_state[
+            "last_error"
+        ] = ""
+
+    else:
+
+        st.session_state[
+            "last_error"
+        ] = message
+
+
+# ============================================================
+# USER INTERFACE
+# ============================================================
+
+st.title(
+    "🐎 Quantum X PRO"
+)
+
+st.subheader(
+    "Automated IG Demo — XAU/USD M5 Scalper"
+)
+
+st.caption(
+    "Support + Resistance + Confirmation Candles • "
+    "No AI • M5 only"
+)
+
+reset_daily_counter_if_needed()
+
+connected = st.session_state[
+    "connected"
+]
+
+running = st.session_state[
+    "bot_running"
+]
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+
+    if connected:
+
+        st.success(
+            "🟢 IG DEMO CONNECTED"
+        )
+
+    else:
+
+        st.error(
+            "🔴 IG NOT CONNECTED"
+        )
+
+with col2:
+
+    if running:
+
+        st.success(
+            "🟢 BOT RUNNING"
+        )
+
+    else:
+
+        st.warning(
+            "🟡 BOT STOPPED"
+        )
+
+with col3:
+
+    st.metric(
+        "TRADES",
+        f"{st.session_state['trade_count']}/"
+        f"{MAX_TRADES_PER_DAY}",
+    )
+
+
+# ============================================================
+# SETTINGS
+# ============================================================
+
+with st.expander(
+    "⚙️ Scalper Settings",
+    expanded=False,
+):
+
+    size = st.number_input(
+        "IG trade size",
+        min_value=0.01,
+        max_value=100.0,
+        value=float(
+            st.session_state["size"]
+        ),
+        step=0.01,
+    )
+
+    stop_distance = st.number_input(
+        "Minimum stop distance",
+        min_value=0.1,
+        max_value=1000.0,
+        value=float(
+            st.session_state[
+                "stop_distance"
+            ]
+        ),
+        step=0.1,
+    )
+
+    rr = st.number_input(
+        "Risk / Reward",
+        min_value=0.5,
+        max_value=10.0,
+        value=float(
+            st.session_state["rr"]
+        ),
+        step=0.1,
+    )
+
+    st.session_state[
+        "size"
+    ] = size
+
+    st.session_state[
+        "stop_distance"
+    ] = stop_distance
+
+    st.session_state[
+        "rr"
+    ] = rr
+
+    st.info(
+        "The bot uses the larger of the configured "
+        "stop distance and local M5 ATR."
+    )
+
+
+# ============================================================
+# CONNECTION BUTTONS
+# ============================================================
+
+button_col1, button_col2, button_col3 = (
+    st.columns(3)
+)
+
+with button_col1:
+
+    if st.button(
+        "🔌 Connect IG Demo",
+        use_container_width=True,
+    ):
+
+        success, message = login_ig()
+
+        if success:
+
+            epic, search_error = (
+                find_gold_epic()
+            )
+
+            if epic:
+                st.session_state[
+                    "epic"
+                ] = epic
+
+            st.success(message)
+
+            if search_error:
+
+                st.warning(
+                    "Gold search: "
+                    + search_error
+                )
+
+            st.rerun()
+
+        else:
+
+            st.error(message)
+
+
+with button_col2:
+
+    if st.button(
+        "▶️ START BOT",
+        use_container_width=True,
+        disabled=not connected,
+    ):
+
+        if not connected:
+
+            st.error(
+                "Connect to IG Demo first."
+            )
+
+        else:
+
+            st.session_state[
+                "bot_running"
+            ] = True
+
+            st.session_state[
+                "last_error"
+            ] = ""
+
+            st.success(
+                "Bot started."
+            )
+
+            st.rerun()
+
+
+with button_col3:
+
+    if st.button(
+        "⛔ STOP BOT",
+        use_container_width=True,
+    ):
+
+        st.session_state[
+            "bot_running"
+        ] = False
+
+        st.info(
+            "Bot stopped. Existing IG positions "
+            "are NOT automatically closed."
+        )
+
+        st.rerun()
+
+
+# ============================================================
+# LIVE BOT
+# ============================================================
+
+@st.fragment(run_every=POLL_SECONDS)
+def live_bot():
+
+    if (
+        st.session_state["connected"]
+        and st.session_state["bot_running"]
+    ):
+
+        run_bot_cycle()
+
+    st.divider()
+
+    st.header(
+        "🥇 XAU/USD"
+    )
+
+    st.write(
+        f"**EPIC:** "
+        f"`{st.session_state['epic']}`"
+    )
+
+    price = st.session_state[
+        "last_price"
+    ]
+
+    if price is not None:
+
+        price_col1, price_col2, price_col3 = (
+            st.columns(3)
+        )
+
+        with price_col1:
+
+            st.metric(
+                "Live IG Price",
+                f"{price:.2f}",
+            )
+
+        with price_col2:
+
+            bid = st.session_state[
+                "last_bid"
+            ]
+
+            if bid is not None:
+
+                st.metric(
+                    "Bid",
+                    f"{bid:.2f}",
+                )
+
+        with price_col3:
+
+            offer = st.session_state[
+                "last_offer"
+            ]
+
+            if offer is not None:
+
+                st.metric(
+                    "Offer",
+                    f"{offer:.2f}",
+                )
+
+    else:
+
+        st.info(
+            "Waiting for live IG XAU/USD price..."
+        )
+
+    market_status = (
+        st.session_state[
+            "market_status"
+        ]
+    )
+
+    if market_status:
+
+        st.caption(
+            "IG Market Status: "
+            + market_status
+        )
+
+    # --------------------------------------------------------
+    # SIGNAL
+    # --------------------------------------------------------
+
+    signal = st.session_state[
+        "last_signal"
+    ]
+
+    reason = st.session_state[
+        "last_reason"
+    ]
+
+    if signal == "BUY":
+
+        st.success(
+            "🟢 BUY SIGNAL — "
+            + reason
+        )
+
+    elif signal == "SELL":
+
+        st.error(
+            "🔴 SELL SIGNAL — "
+            + reason
+        )
+
+    elif signal == "LIMIT":
+
+        st.warning(
+            "⚠️ "
+            + reason
+        )
+
+    else:
+
+        st.info(
+            "⏳ "
+            + reason
+        )
+
+    # --------------------------------------------------------
+    # BOT STATUS
+    # --------------------------------------------------------
+
+    if st.session_state[
+        "bot_running"
+    ]:
+
+        st.success(
+            "🤖 AUTOMATION ACTIVE — "
+            f"checking every {POLL_SECONDS} seconds"
+        )
+
+    else:
+
+        st.warning(
+            "Bot is stopped."
+        )
+
+    # --------------------------------------------------------
+    # ERRORS
+    # --------------------------------------------------------
+
+    if st.session_state[
+        "last_error"
+    ]:
+
+        st.error(
+            st.session_state[
+                "last_error"
+            ]
+        )
+
+    # --------------------------------------------------------
+    # M5 CANDLES
+    # --------------------------------------------------------
+
+    df = bars_dataframe()
+
+    st.divider()
+
+    st.header(
+        "📊 Local M5 Candles"
+    )
+
+    if df.empty:
+
+        st.info(
+            "No M5 candles built yet."
+        )
+
+    else:
+
+        completed_count = max(
+            0,
+            len(df) - 1,
+        )
+
+        if completed_count < (
+            MIN_COMPLETED_BARS
+        ):
+
+            st.warning(
+                "Building M5 structure: "
+                f"{completed_count}/"
+                f"{MIN_COMPLETED_BARS} "
+                "completed candles."
+            )
+
+        else:
+
+            st.success(
+                "M5 structure ready — "
+                f"{completed_count} "
+                "completed candles."
+            )
+
+        display_df = df.tail(
+            12
+        ).copy()
+
+        display_df["time"] = (
+            display_df["time"]
+            .dt.strftime(
+                "%H:%M:%S"
+            )
+        )
+
+        for col in [
+            "open",
+            "high",
+            "low",
+            "close",
+        ]:
+
+            display_df[col] = (
+                display_df[col]
+                .map(
+                    lambda x:
+                    f"{x:.2f}"
+                )
+            )
+
+        st.dataframe(
+            display_df,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    # --------------------------------------------------------
+    # LAST ORDER
+    # --------------------------------------------------------
+
+    if st.session_state[
+        "last_order"
+    ]:
+
+        st.divider()
+
+        st.header(
+            "📋 Last Order"
+        )
+
+        order = (
+            st.session_state[
+                "last_order"
+            ]
+        )
+
+        st.write(
+            f"**Direction:** "
+            f"{order['direction']}"
+        )
+
+        st.write(
+            f"**Size:** "
+            f"{order['size']}"
+        )
+
+        st.write(
+            f"**Stop:** "
+            f"{order['stop']:.2f}"
+        )
+
+        st.write(
+            f"**Target:** "
+            f"{order['limit']:.2f}"
+        )
+
+        st.write(
+            f"**Deal Status:** "
+            f"{order['dealStatus']}"
+        )
+
+        st.write(
+            f"**Deal Reference:** "
+            f"`{order['dealReference']}`"
+        )
+
+    st.divider()
+
+    st.caption(
+        "IG historical candles are NOT requested. "
+        "The bot builds M5 candles locally from live "
+        "IG market prices."
+    )
+
+    last_tick = (
+        st.session_state[
+            "last_tick"
+        ]
+    )
+
+    if last_tick:
+
+        st.caption(
+            "Last IG tick: "
+            + last_tick.strftime(
+                "%Y-%m-%d %H:%M:%S UTC"
+            )
+        )
+
+    st.caption(
+        "Maximum: 10 trades/day • "
+        "Maximum 1 open XAU/USD position • "
+        "One entry per M5 candle"
+    )
+
+
+# ============================================================
+# START LIVE ENGINE
+# ============================================================
+
+live_bot()
