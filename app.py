@@ -1042,3 +1042,23 @@ st.caption(
     "Quantum X V2.1 — Data Engine only | "
     "IG Demo execution disabled"
     )
+# ============================================================
+# END OF QUANTUM X V2.1 DATA ENGINE
+# ============================================================
+#
+# V2.1 intentionally stops here.
+#
+# Future milestones will be added on top of this foundation:
+#
+# V2.2  Market Structure
+# V2.3  Liquidity + upgraded S/R
+# V2.4  Order Blocks + FVG
+# V2.5  VWAP + ATR + Volume
+# V2.6  Fibonacci Confluence
+# V2.7  Entry Engine
+# V2.8  Exit + Risk Engine
+# V2.9  Demo Validation
+# V2.10 Automated Demo Execution
+#
+# NO ORDER EXECUTION EXISTS IN V2.1.
+# ============================================================
