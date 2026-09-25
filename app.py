@@ -1288,3 +1288,673 @@ def get_m15_structure_data():
         M15,
         STRUCTURE_LOOKBACK_M15,
         )
+# ============================================================
+# QUANTUM X V2.2 — HALF 2
+# MARKET STRUCTURE EVENTS + ANALYSIS
+# ============================================================
+
+
+# ------------------------------------------------------------
+# STRUCTURE EVENT DETECTION
+# ------------------------------------------------------------
+
+def detect_structure_events(
+    completed_df,
+    swings,
+):
+    columns = [
+        "time",
+        "event",
+        "direction",
+        "price",
+        "broken_level",
+    ]
+
+    if (
+        completed_df is None
+        or completed_df.empty
+        or swings is None
+        or swings.empty
+    ):
+        return pd.DataFrame(
+            columns=columns
+        )
+
+    source = completed_df.copy()
+    source = source.sort_index()
+
+    swing_highs = swings[
+        swings["type"] == "HIGH"
+    ].copy()
+
+    swing_lows = swings[
+        swings["type"] == "LOW"
+    ].copy()
+
+    events = []
+
+    previous_bias = "NEUTRAL"
+
+    last_high_level = None
+    last_low_level = None
+
+    last_high_time = None
+    last_low_time = None
+
+    broken_high_times = set()
+    broken_low_times = set()
+
+    for timestamp, candle in source.iterrows():
+
+        close_price = float(
+            candle["close"]
+        )
+
+        # ----------------------------------------------------
+        # Find the latest confirmed swing high before this
+        # candle.
+        # ----------------------------------------------------
+
+        available_highs = swing_highs[
+            swing_highs["time"] < timestamp
+        ]
+
+        if not available_highs.empty:
+
+            latest_high = available_highs.iloc[-1]
+
+            candidate_time = latest_high[
+                "time"
+            ]
+
+            candidate_price = float(
+                latest_high[
+                    "price"
+                ]
+            )
+
+            if (
+                candidate_time
+                != last_high_time
+            ):
+                last_high_time = candidate_time
+                last_high_level = candidate_price
+
+        # ----------------------------------------------------
+        # Find the latest confirmed swing low before this
+        # candle.
+        # ----------------------------------------------------
+
+        available_lows = swing_lows[
+            swing_lows["time"] < timestamp
+        ]
+
+        if not available_lows.empty:
+
+            latest_low = available_lows.iloc[-1]
+
+            candidate_time = latest_low[
+                "time"
+            ]
+
+            candidate_price = float(
+                latest_low[
+                    "price"
+                ]
+            )
+
+            if (
+                candidate_time
+                != last_low_time
+            ):
+                last_low_time = candidate_time
+                last_low_level = candidate_price
+
+        # ----------------------------------------------------
+        # BULLISH STRUCTURE BREAK
+        # ----------------------------------------------------
+
+        if (
+            last_high_level is not None
+            and last_high_time not in broken_high_times
+            and close_price > last_high_level
+        ):
+
+            if previous_bias == "BEARISH":
+                event_name = "CHOCH"
+            else:
+                event_name = "BOS"
+
+            events.append(
+                {
+                    "time": timestamp,
+                    "event": event_name,
+                    "direction": "BULLISH",
+                    "price": close_price,
+                    "broken_level": last_high_level,
+                }
+            )
+
+            previous_bias = "BULLISH"
+
+            broken_high_times.add(
+                last_high_time
+            )
+
+        # ----------------------------------------------------
+        # BEARISH STRUCTURE BREAK
+        # ----------------------------------------------------
+
+        elif (
+            last_low_level is not None
+            and last_low_time not in broken_low_times
+            and close_price < last_low_level
+        ):
+
+            if previous_bias == "BULLISH":
+                event_name = "CHOCH"
+            else:
+                event_name = "BOS"
+
+            events.append(
+                {
+                    "time": timestamp,
+                    "event": event_name,
+                    "direction": "BEARISH",
+                    "price": close_price,
+                    "broken_level": last_low_level,
+                }
+            )
+
+            previous_bias = "BEARISH"
+
+            broken_low_times.add(
+                last_low_time
+            )
+
+    if not events:
+        return pd.DataFrame(
+            columns=columns
+        )
+
+    result = pd.DataFrame(
+        events
+    )
+
+    result = result.drop_duplicates(
+        subset=[
+            "time",
+            "event",
+            "direction",
+        ],
+        keep="last",
+    )
+
+    result = result.sort_values(
+        "time"
+    ).reset_index(
+        drop=True
+    )
+
+    return result
+
+
+# ------------------------------------------------------------
+# STRUCTURE ANALYSIS
+# ------------------------------------------------------------
+
+def analyze_market_structure(
+    df,
+    timeframe,
+    lookback,
+):
+    completed = (
+        get_completed_timeframe_data(
+            df,
+            timeframe,
+            max_rows=lookback,
+        )
+    )
+
+    if completed.empty:
+        return {
+            "completed": pd.DataFrame(),
+            "swings": pd.DataFrame(),
+            "events": pd.DataFrame(),
+            "bias": "NEUTRAL",
+            "last_event": "NONE",
+            "last_event_direction": "NONE",
+            "last_event_time": None,
+            "last_event_level": None,
+        }
+
+    swings = detect_swing_points(
+        completed,
+        left=STRUCTURE_SWING_LEFT,
+        right=STRUCTURE_SWING_RIGHT,
+    )
+
+    classified = classify_swings(
+        swings
+    )
+
+    events = detect_structure_events(
+        completed,
+        classified,
+    )
+
+    # --------------------------------------------------------
+    # Start with swing-based bias.
+    # --------------------------------------------------------
+
+    bias = determine_structure_bias(
+        classified
+    )
+
+    last_event = "NONE"
+    last_event_direction = "NONE"
+    last_event_time = None
+    last_event_level = None
+
+    # --------------------------------------------------------
+    # A confirmed BOS/CHOCH gets priority over the basic
+    # swing-count bias.
+    # --------------------------------------------------------
+
+    if not events.empty:
+
+        last_event_row = events.iloc[-1]
+
+        last_event = str(
+            last_event_row[
+                "event"
+            ]
+        )
+
+        last_event_direction = str(
+            last_event_row[
+                "direction"
+            ]
+        )
+
+        last_event_time = (
+            last_event_row[
+                "time"
+            ]
+        )
+
+        last_event_level = float(
+            last_event_row[
+                "broken_level"
+            ]
+        )
+
+        bias = last_event_direction
+
+    return {
+        "completed": completed,
+        "swings": classified,
+        "events": events,
+        "bias": bias,
+        "last_event": last_event,
+        "last_event_direction": last_event_direction,
+        "last_event_time": last_event_time,
+        "last_event_level": last_event_level,
+    }
+
+
+# ------------------------------------------------------------
+# M5 STRUCTURE ANALYSIS
+# ------------------------------------------------------------
+
+def get_m5_structure():
+
+    return analyze_market_structure(
+        st.session_state[
+            "m5_bars"
+        ],
+        M5,
+        STRUCTURE_LOOKBACK_M5,
+    )
+
+
+# ------------------------------------------------------------
+# M15 STRUCTURE ANALYSIS
+# ------------------------------------------------------------
+
+def get_m15_structure():
+
+    return analyze_market_structure(
+        st.session_state[
+            "m15_bars"
+        ],
+        M15,
+        STRUCTURE_LOOKBACK_M15,
+    )
+
+
+# ------------------------------------------------------------
+# M5 + M15 ALIGNMENT
+# ------------------------------------------------------------
+
+def get_structure_alignment(
+    m5_structure,
+    m15_structure,
+):
+    m5_bias = str(
+        m5_structure.get(
+            "bias",
+            "NEUTRAL",
+        )
+    )
+
+    m15_bias = str(
+        m15_structure.get(
+            "bias",
+            "NEUTRAL",
+        )
+    )
+
+    if (
+        m5_bias == "BULLISH"
+        and m15_bias == "BULLISH"
+    ):
+        return "BULLISH ALIGNMENT"
+
+    if (
+        m5_bias == "BEARISH"
+        and m15_bias == "BEARISH"
+    ):
+        return "BEARISH ALIGNMENT"
+
+    if (
+        m5_bias == "NEUTRAL"
+        or m15_bias == "NEUTRAL"
+    ):
+        return "MIXED / WAIT"
+
+    return "M5 / M15 CONFLICT"
+
+
+# ------------------------------------------------------------
+# STRUCTURE DISPLAY TABLE
+# ------------------------------------------------------------
+
+def prepare_structure_table(
+    swings,
+    rows=12,
+):
+    if swings is None or swings.empty:
+        return pd.DataFrame()
+
+    result = swings.tail(
+        rows
+    ).copy()
+
+    result["time"] = pd.to_datetime(
+        result["time"],
+        utc=True,
+    ).dt.strftime(
+        "%H:%M:%S"
+    )
+
+    result["price"] = (
+        result["price"]
+        .astype(float)
+        .round(2)
+    )
+
+    result = result[
+        [
+            "time",
+            "type",
+            "price",
+            "label",
+        ]
+    ]
+
+    return result
+
+
+# ------------------------------------------------------------
+# STRUCTURE EVENT TABLE
+# ------------------------------------------------------------
+
+def prepare_event_table(
+    events,
+    rows=10,
+):
+    if events is None or events.empty:
+        return pd.DataFrame()
+
+    result = events.tail(
+        rows
+    ).copy()
+
+    result["time"] = pd.to_datetime(
+        result["time"],
+        utc=True,
+    ).dt.strftime(
+        "%H:%M:%S"
+    )
+
+    result["price"] = (
+        result["price"]
+        .astype(float)
+        .round(2)
+    )
+
+    result["broken_level"] = (
+        result["broken_level"]
+        .astype(float)
+        .round(2)
+    )
+
+    result = result[
+        [
+            "time",
+            "event",
+            "direction",
+            "price",
+            "broken_level",
+        ]
+    ]
+
+    return result
+
+
+# ------------------------------------------------------------
+# STRUCTURE STATUS TEXT
+# ------------------------------------------------------------
+
+def structure_bias_text(
+    bias,
+):
+    if bias == "BULLISH":
+        return "🟢 BULLISH"
+
+    if bias == "BEARISH":
+        return "🔴 BEARISH"
+
+    return "🟡 NEUTRAL"
+
+
+def structure_event_text(
+    event,
+    direction,
+):
+    if event == "BOS":
+        if direction == "BULLISH":
+            return "🟢 Bullish BOS"
+
+        if direction == "BEARISH":
+            return "🔴 Bearish BOS"
+
+        return "BOS"
+
+    if event == "CHOCH":
+        if direction == "BULLISH":
+            return "🟢 Bullish CHOCH"
+
+        if direction == "BEARISH":
+            return "🔴 Bearish CHOCH"
+
+        return "CHOCH"
+
+    return "NONE"
+
+
+# ------------------------------------------------------------
+# STRUCTURE SUMMARY
+# ------------------------------------------------------------
+
+def get_structure_summary(
+    structure,
+):
+    if structure is None:
+        return {
+            "bias": "NEUTRAL",
+            "event": "NONE",
+            "direction": "NONE",
+            "event_time": None,
+            "level": None,
+            "swing_count": 0,
+            "event_count": 0,
+        }
+
+    swings = structure.get(
+        "swings",
+        pd.DataFrame(),
+    )
+
+    events = structure.get(
+        "events",
+        pd.DataFrame(),
+    )
+
+    return {
+        "bias": structure.get(
+            "bias",
+            "NEUTRAL",
+        ),
+        "event": structure.get(
+            "last_event",
+            "NONE",
+        ),
+        "direction": structure.get(
+            "last_event_direction",
+            "NONE",
+        ),
+        "event_time": structure.get(
+            "last_event_time",
+            None,
+        ),
+        "level": structure.get(
+            "last_event_level",
+            None,
+        ),
+        "swing_count": len(
+            swings
+        ),
+        "event_count": len(
+            events
+        ),
+    }
+
+
+# ------------------------------------------------------------
+# DATA HEALTH
+# ------------------------------------------------------------
+
+def get_data_health():
+    m5 = st.session_state[
+        "m5_bars"
+    ]
+
+    m15 = st.session_state[
+        "m15_bars"
+    ]
+
+    now = utc_now()
+
+    m5_count = len(m5)
+
+    m15_count = len(m15)
+
+    m5_current = (
+        floor_time(
+            now,
+            M5,
+        )
+        if not m5.empty
+        else None
+    )
+
+    m15_current = (
+        floor_time(
+            now,
+            M15,
+        )
+        if not m15.empty
+        else None
+    )
+
+    m5_latest = (
+        m5.index[-1]
+        if not m5.empty
+        else None
+    )
+
+    m15_latest = (
+        m15.index[-1]
+        if not m15.empty
+        else None
+    )
+
+    return {
+        "m5_count": m5_count,
+        "m15_count": m15_count,
+        "m5_latest": m5_latest,
+        "m15_latest": m15_latest,
+        "m5_current": m5_current,
+        "m15_current": m15_current,
+        "ig_mid": st.session_state[
+            "live_mid"
+        ],
+        "offset": st.session_state[
+            "calibration_offset"
+        ],
+        "market_status": st.session_state[
+            "market_status"
+        ],
+    }
+
+
+# ------------------------------------------------------------
+# DATAFRAME DISPLAY HELPER
+# ------------------------------------------------------------
+
+def style_dataframe(
+    df,
+    rows=20,
+):
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    display_df = df.tail(
+        rows
+    ).copy()
+
+    display_df.index = display_df.index.strftime(
+        "%H:%M:%S"
+    )
+
+    return display_df.round(
+        {
+            "open": 2,
+            "high": 2,
+            "low": 2,
+            "close": 2,
+            "volume": 0,
+        }
+    )
