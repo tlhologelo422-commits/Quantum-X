@@ -593,3 +593,698 @@ def apply_calibration(
         )
 
     return result
+# ------------------------------------------------------------
+# HISTORICAL DATA BOOTSTRAP
+# ------------------------------------------------------------
+
+def bootstrap_data():
+    started = time.time()
+
+    st.session_state[
+        "bootstrap_started_at"
+    ] = utc_now()
+
+    st.session_state[
+        "last_error"
+    ] = None
+
+    st.session_state[
+        "bootstrap_complete"
+    ] = False
+
+    if not st.session_state[
+        "ig_connected"
+    ]:
+        ig_login()
+
+    market = get_ig_market()
+
+    m5 = fetch_yahoo_m5()
+
+    m15 = fetch_yahoo_m15()
+
+    offset = calibrate_yahoo_to_ig(
+        market["mid"],
+        m5,
+    )
+
+    m5 = apply_calibration(
+        m5,
+        offset,
+    )
+
+    m15 = apply_calibration(
+        m15,
+        offset,
+    )
+
+    st.session_state[
+        "m5_bars"
+    ] = m5
+
+    st.session_state[
+        "m15_bars"
+    ] = m15
+
+    update_live_candles(
+        market["mid"],
+        create_if_missing=True,
+    )
+
+    elapsed = time.time() - started
+
+    if elapsed > MAX_STARTUP_SECONDS:
+        raise RuntimeError(
+            f"Data bootstrap exceeded the "
+            f"{MAX_STARTUP_SECONDS // 60}-minute "
+            f"startup target."
+        )
+
+    st.session_state[
+        "bootstrap_completed_at"
+    ] = utc_now()
+
+    st.session_state[
+        "bootstrap_complete"
+    ] = True
+
+    st.session_state[
+        "engine_running"
+    ] = True
+
+    return elapsed
+
+
+# ------------------------------------------------------------
+# LIVE CANDLE ENGINE
+# ------------------------------------------------------------
+
+def update_live_candles(
+    live_price,
+    create_if_missing=True,
+):
+    if live_price is None:
+        return
+
+    now = utc_now()
+
+    m5_bucket = floor_time(
+        now,
+        M5,
+    )
+
+    m15_bucket = floor_time(
+        now,
+        M15,
+    )
+
+    # --------------------------------------------------------
+    # M5
+    # --------------------------------------------------------
+
+    m5_df = st.session_state[
+        "m5_bars"
+    ].copy()
+
+    if m5_df.empty:
+        if not create_if_missing:
+            return
+
+        m5_df = pd.DataFrame(
+            columns=[
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+            ]
+        )
+
+    if m5_bucket in m5_df.index:
+
+        row = m5_df.loc[
+            m5_bucket
+        ].copy()
+
+        row["high"] = max(
+            float(row["high"]),
+            float(live_price),
+        )
+
+        row["low"] = min(
+            float(row["low"]),
+            float(live_price),
+        )
+
+        row["close"] = float(
+            live_price
+        )
+
+        m5_df.loc[
+            m5_bucket
+        ] = row
+
+    elif create_if_missing:
+
+        m5_df.loc[
+            m5_bucket
+        ] = {
+            "open": float(
+                live_price
+            ),
+            "high": float(
+                live_price
+            ),
+            "low": float(
+                live_price
+            ),
+            "close": float(
+                live_price
+            ),
+            "volume": 0.0,
+        }
+
+    m5_df = (
+        m5_df
+        .sort_index()
+        .tail(MAX_M5_BARS)
+    )
+
+    st.session_state[
+        "m5_bars"
+    ] = m5_df
+
+    # --------------------------------------------------------
+    # M15
+    # --------------------------------------------------------
+
+    m15_df = st.session_state[
+        "m15_bars"
+    ].copy()
+
+    if m15_df.empty:
+        if not create_if_missing:
+            return
+
+        m15_df = pd.DataFrame(
+            columns=[
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+            ]
+        )
+
+    if m15_bucket in m15_df.index:
+
+        row = m15_df.loc[
+            m15_bucket
+        ].copy()
+
+        row["high"] = max(
+            float(row["high"]),
+            float(live_price),
+        )
+
+        row["low"] = min(
+            float(row["low"]),
+            float(live_price),
+        )
+
+        row["close"] = float(
+            live_price
+        )
+
+        m15_df.loc[
+            m15_bucket
+        ] = row
+
+    elif create_if_missing:
+
+        m15_df.loc[
+            m15_bucket
+        ] = {
+            "open": float(
+                live_price
+            ),
+            "high": float(
+                live_price
+            ),
+            "low": float(
+                live_price
+            ),
+            "close": float(
+                live_price
+            ),
+            "volume": 0.0,
+        }
+
+    m15_df = (
+        m15_df
+        .sort_index()
+        .tail(MAX_M15_BARS)
+    )
+
+    st.session_state[
+        "m15_bars"
+    ] = m15_df
+
+
+# ------------------------------------------------------------
+# LIVE UPDATE
+# ------------------------------------------------------------
+
+def live_data_tick():
+
+    if not st.session_state[
+        "ig_connected"
+    ]:
+        return
+
+    market = get_ig_market()
+
+    update_live_candles(
+        market["mid"],
+        create_if_missing=True,
+    )
+
+
+# ============================================================
+# V2.2 MARKET STRUCTURE ENGINE
+# ============================================================
+#
+# Structure is calculated from COMPLETED candles only.
+#
+# The current forming candle is excluded so that temporary
+# intrabar movement does not immediately become structure.
+#
+# M15 will later provide directional context.
+# M5 will later provide execution structure.
+#
+# NO TRADING LOGIC EXISTS HERE.
+# ============================================================
+
+
+# ------------------------------------------------------------
+# COMPLETED TIMEFRAME DATA
+# ------------------------------------------------------------
+
+def get_completed_timeframe_data(
+    df,
+    timeframe,
+    max_rows=None,
+):
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    result = df.copy()
+
+    result = result.sort_index()
+
+    current_bucket = floor_time(
+        utc_now(),
+        timeframe,
+    )
+
+    # Only completed candles are allowed
+    # into the structure engine.
+    result = result[
+        result.index < current_bucket
+    ].copy()
+
+    if max_rows is not None:
+        result = result.tail(
+            int(max_rows)
+        ).copy()
+
+    return result
+
+
+# ------------------------------------------------------------
+# SWING DETECTION
+# ------------------------------------------------------------
+
+def detect_swing_points(
+    df,
+    left=STRUCTURE_SWING_LEFT,
+    right=STRUCTURE_SWING_RIGHT,
+):
+    if df is None or df.empty:
+        return pd.DataFrame(
+            columns=[
+                "time",
+                "type",
+                "price",
+            ]
+        )
+
+    minimum_bars = (
+        left
+        + right
+        + 1
+    )
+
+    if len(df) < minimum_bars:
+        return pd.DataFrame(
+            columns=[
+                "time",
+                "type",
+                "price",
+            ]
+        )
+
+    source = df.copy()
+
+    source = source.sort_index()
+
+    highs = source[
+        "high"
+    ].astype(float)
+
+    lows = source[
+        "low"
+    ].astype(float)
+
+    records = []
+
+    for i in range(
+        left,
+        len(source) - right,
+    ):
+        current_high = float(
+            highs.iloc[i]
+        )
+
+        current_low = float(
+            lows.iloc[i]
+        )
+
+        left_highs = highs.iloc[
+            i - left:i
+        ]
+
+        right_highs = highs.iloc[
+            i + 1:i + 1 + right
+        ]
+
+        left_lows = lows.iloc[
+            i - left:i
+        ]
+
+        right_lows = lows.iloc[
+            i + 1:i + 1 + right
+        ]
+
+        is_swing_high = (
+            current_high
+            >= left_highs.max()
+            and current_high
+            >= right_highs.max()
+        )
+
+        is_swing_low = (
+            current_low
+            <= left_lows.min()
+            and current_low
+            <= right_lows.min()
+        )
+
+        timestamp = source.index[i]
+
+        if is_swing_high:
+            records.append(
+                {
+                    "time": timestamp,
+                    "type": "HIGH",
+                    "price": current_high,
+                }
+            )
+
+        if is_swing_low:
+            records.append(
+                {
+                    "time": timestamp,
+                    "type": "LOW",
+                    "price": current_low,
+                }
+            )
+
+    if not records:
+        return pd.DataFrame(
+            columns=[
+                "time",
+                "type",
+                "price",
+            ]
+        )
+
+    result = pd.DataFrame(
+        records
+    )
+
+    result = result.sort_values(
+        [
+            "time",
+            "type",
+        ]
+    ).reset_index(
+        drop=True
+    )
+
+    return result
+
+
+# ------------------------------------------------------------
+# SWING CLASSIFICATION
+# ------------------------------------------------------------
+
+def classify_swings(
+    swing_df,
+):
+    if swing_df is None or swing_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "time",
+                "type",
+                "price",
+                "label",
+            ]
+        )
+
+    result = swing_df.copy()
+
+    result["label"] = ""
+
+    previous_high = None
+    previous_low = None
+
+    for i in range(
+        len(result)
+    ):
+        swing_type = str(
+            result.at[
+                i,
+                "type",
+            ]
+        )
+
+        price = float(
+            result.at[
+                i,
+                "price",
+            ]
+        )
+
+        if swing_type == "HIGH":
+
+            if previous_high is None:
+                label = "HIGH"
+
+            elif price > previous_high:
+                label = "HH"
+
+            else:
+                label = "LH"
+
+            previous_high = price
+
+        else:
+
+            if previous_low is None:
+                label = "LOW"
+
+            elif price > previous_low:
+                label = "HL"
+
+            else:
+                label = "LL"
+
+            previous_low = price
+
+        result.at[
+            i,
+            "label",
+        ] = label
+
+    return result
+
+
+# ------------------------------------------------------------
+# LATEST SWING HELPERS
+# ------------------------------------------------------------
+
+def latest_swing_of_type(
+    swings,
+    swing_type,
+):
+    if swings is None or swings.empty:
+        return None
+
+    subset = swings[
+        swings["type"]
+        == swing_type
+    ]
+
+    if subset.empty:
+        return None
+
+    row = subset.iloc[-1]
+
+    return {
+        "time": row["time"],
+        "price": float(
+            row["price"]
+        ),
+        "label": str(
+            row["label"]
+        ),
+    }
+
+
+# ------------------------------------------------------------
+# BASIC STRUCTURE BIAS
+# ------------------------------------------------------------
+
+def determine_structure_bias(
+    swings,
+):
+    if swings is None or swings.empty:
+        return "NEUTRAL"
+
+    recent = swings.tail(
+        8
+    ).copy()
+
+    labels = (
+        recent["label"]
+        .astype(str)
+        .tolist()
+    )
+
+    bullish_labels = {
+        "HH",
+        "HL",
+    }
+
+    bearish_labels = {
+        "LH",
+        "LL",
+    }
+
+    bullish_count = sum(
+        label in bullish_labels
+        for label in labels
+    )
+
+    bearish_count = sum(
+        label in bearish_labels
+        for label in labels
+    )
+
+    if bullish_count > bearish_count:
+        return "BULLISH"
+
+    if bearish_count > bullish_count:
+        return "BEARISH"
+
+    return "NEUTRAL"
+
+
+# ------------------------------------------------------------
+# STRUCTURE SNAPSHOT
+# ------------------------------------------------------------
+
+def build_structure_snapshot(
+    df,
+    timeframe,
+    lookback,
+):
+    completed = (
+        get_completed_timeframe_data(
+            df,
+            timeframe,
+            max_rows=lookback,
+        )
+    )
+
+    if completed.empty:
+        return {
+            "candles": pd.DataFrame(),
+            "swings": pd.DataFrame(),
+            "bias": "NEUTRAL",
+            "last_event": "NONE",
+            "last_event_time": None,
+            "last_event_level": None,
+        }
+
+    swings = detect_swing_points(
+        completed
+    )
+
+    classified = classify_swings(
+        swings
+    )
+
+    bias = determine_structure_bias(
+        classified
+    )
+
+    return {
+        "candles": completed,
+        "swings": classified,
+        "bias": bias,
+        "last_event": "NONE",
+        "last_event_time": None,
+        "last_event_level": None,
+    }
+
+
+# ------------------------------------------------------------
+# M5 STRUCTURE DATA
+# ------------------------------------------------------------
+
+def get_m5_structure_data():
+
+    return build_structure_snapshot(
+        st.session_state[
+            "m5_bars"
+        ],
+        M5,
+        STRUCTURE_LOOKBACK_M5,
+    )
+
+
+# ------------------------------------------------------------
+# M15 STRUCTURE DATA
+# ------------------------------------------------------------
+
+def get_m15_structure_data():
+
+    return build_structure_snapshot(
+        st.session_state[
+            "m15_bars"
+        ],
+        M15,
+        STRUCTURE_LOOKBACK_M15,
+        )
