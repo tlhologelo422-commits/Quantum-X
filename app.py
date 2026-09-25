@@ -1958,3 +1958,724 @@ def style_dataframe(
             "volume": 0,
         }
     )
+# ============================================================
+# QUANTUM X V2.2 — HALF 2B
+# STRUCTURE DISPLAY + LIVE STATUS
+# ============================================================
+
+
+# ------------------------------------------------------------
+# STATUS CARDS
+# ------------------------------------------------------------
+
+def render_status_cards():
+
+    health = get_data_health()
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+
+        if st.session_state[
+            "ig_connected"
+        ]:
+
+            st.metric(
+                "IG Demo",
+                "CONNECTED",
+            )
+
+        else:
+
+            st.metric(
+                "IG Demo",
+                "OFFLINE",
+            )
+
+    with col2:
+
+        st.metric(
+            "XAU/USD",
+            format_price(
+                health["ig_mid"]
+            ),
+        )
+
+    with col3:
+
+        st.metric(
+            "M5 candles",
+            str(
+                health["m5_count"]
+            ),
+        )
+
+    with col4:
+
+        st.metric(
+            "M15 candles",
+            str(
+                health["m15_count"]
+            ),
+        )
+
+
+# ------------------------------------------------------------
+# DATA ENGINE DETAILS
+# ------------------------------------------------------------
+
+def render_data_details():
+
+    health = get_data_health()
+
+    st.subheader(
+        "📡 Data Engine"
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        st.write(
+            "**IG live market**"
+        )
+
+        st.write(
+            f"Bid: `{format_price(st.session_state['live_bid'])}`"
+        )
+
+        st.write(
+            f"Offer: `{format_price(st.session_state['live_offer'])}`"
+        )
+
+        st.write(
+            f"Mid: `{format_price(st.session_state['live_mid'])}`"
+        )
+
+        st.write(
+            f"Status: `{health['market_status']}`"
+        )
+
+    with col2:
+
+        st.write(
+            "**Yahoo structure proxy**"
+        )
+
+        st.write(
+            f"Symbol: `{YAHOO_SYMBOL}`"
+        )
+
+        st.write(
+            f"M5 latest: `{format_price(st.session_state['yahoo_m5_latest'])}`"
+        )
+
+        st.write(
+            f"M15 latest: `{format_price(st.session_state['yahoo_m15_latest'])}`"
+        )
+
+        st.write(
+            f"Calibration offset: `{format_price(health['offset'])}`"
+        )
+
+    st.divider()
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        st.write(
+            "**M5**"
+        )
+
+        st.write(
+            f"Latest candle: `{format_timestamp(health['m5_latest'])}`"
+        )
+
+        st.write(
+            f"Current bucket: `{format_timestamp(health['m5_current'])}`"
+        )
+
+    with col2:
+
+        st.write(
+            "**M15**"
+        )
+
+        st.write(
+            f"Latest candle: `{format_timestamp(health['m15_latest'])}`"
+        )
+
+        st.write(
+            f"Current bucket: `{format_timestamp(health['m15_current'])}`"
+        )
+
+    st.write(
+        f"Last IG update: "
+        f"`{format_timestamp(st.session_state['last_update'])}`"
+    )
+
+    st.write(
+        f"Bootstrap completed: "
+        f"`{format_timestamp(st.session_state['bootstrap_completed_at'])}`"
+    )
+
+
+# ============================================================
+# V2.2 STRUCTURE DASHBOARD
+# ============================================================
+
+def render_structure_dashboard():
+
+    m5_structure = get_m5_structure()
+
+    m15_structure = get_m15_structure()
+
+    alignment = get_structure_alignment(
+        m5_structure,
+        m15_structure,
+    )
+
+    m5_summary = get_structure_summary(
+        m5_structure
+    )
+
+    m15_summary = get_structure_summary(
+        m15_structure
+    )
+
+    st.subheader(
+        "🧠 Market Structure"
+    )
+
+    # --------------------------------------------------------
+    # TOP STRUCTURE CARDS
+    # --------------------------------------------------------
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+
+        st.metric(
+            "M15 Bias",
+            structure_bias_text(
+                m15_summary["bias"]
+            ),
+        )
+
+    with col2:
+
+        st.metric(
+            "M5 Structure",
+            structure_bias_text(
+                m5_summary["bias"]
+            ),
+        )
+
+    with col3:
+
+        st.metric(
+            "M5 / M15",
+            alignment,
+        )
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # LAST STRUCTURE EVENTS
+    # --------------------------------------------------------
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        st.write(
+            "**M15 Structure Event**"
+        )
+
+        st.write(
+            structure_event_text(
+                m15_summary["event"],
+                m15_summary["direction"],
+            )
+        )
+
+        if m15_summary[
+            "event_time"
+        ] is not None:
+
+            st.write(
+                "Time: "
+                f"`{format_timestamp(m15_summary['event_time'])}`"
+            )
+
+        if m15_summary[
+            "level"
+        ] is not None:
+
+            st.write(
+                "Broken level: "
+                f"`{format_price(m15_summary['level'])}`"
+            )
+
+    with col2:
+
+        st.write(
+            "**M5 Structure Event**"
+        )
+
+        st.write(
+            structure_event_text(
+                m5_summary["event"],
+                m5_summary["direction"],
+            )
+        )
+
+        if m5_summary[
+            "event_time"
+        ] is not None:
+
+            st.write(
+                "Time: "
+                f"`{format_timestamp(m5_summary['event_time'])}`"
+            )
+
+        if m5_summary[
+            "level"
+        ] is not None:
+
+            st.write(
+                "Broken level: "
+                f"`{format_price(m5_summary['level'])}`"
+            )
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # M15 SWINGS
+    # --------------------------------------------------------
+
+    st.write(
+        "### 🕐 M15 Swing Structure"
+    )
+
+    m15_swings = prepare_structure_table(
+        m15_structure["swings"],
+        rows=12,
+    )
+
+    if not m15_swings.empty:
+
+        st.dataframe(
+            m15_swings,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    else:
+
+        st.info(
+            "Not enough completed M15 candles "
+            "to establish swing structure."
+        )
+
+    # --------------------------------------------------------
+    # M15 EVENTS
+    # --------------------------------------------------------
+
+    st.write(
+        "### 🧭 M15 BOS / CHOCH"
+    )
+
+    m15_events = prepare_event_table(
+        m15_structure["events"],
+        rows=10,
+    )
+
+    if not m15_events.empty:
+
+        st.dataframe(
+            m15_events,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    else:
+
+        st.info(
+            "No confirmed M15 BOS/CHOCH events yet."
+        )
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # M5 SWINGS
+    # --------------------------------------------------------
+
+    st.write(
+        "### 🕐 M5 Swing Structure"
+    )
+
+    m5_swings = prepare_structure_table(
+        m5_structure["swings"],
+        rows=15,
+    )
+
+    if not m5_swings.empty:
+
+        st.dataframe(
+            m5_swings,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    else:
+
+        st.info(
+            "Not enough completed M5 candles "
+            "to establish swing structure."
+        )
+
+    # --------------------------------------------------------
+    # M5 EVENTS
+    # --------------------------------------------------------
+
+    st.write(
+        "### 🧭 M5 BOS / CHOCH"
+    )
+
+    m5_events = prepare_event_table(
+        m5_structure["events"],
+        rows=12,
+    )
+
+    if not m5_events.empty:
+
+        st.dataframe(
+            m5_events,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    else:
+
+        st.info(
+            "No confirmed M5 BOS/CHOCH events yet."
+        )
+
+
+# ============================================================
+# LIVE CANDLE TABLES
+# ============================================================
+
+def render_live_candle_tables():
+
+    st.subheader(
+        "🕯️ Live M5"
+    )
+
+    m5_display = style_dataframe(
+        st.session_state[
+            "m5_bars"
+        ],
+        rows=20,
+    )
+
+    if not m5_display.empty:
+
+        st.dataframe(
+            m5_display,
+            use_container_width=True,
+        )
+
+    else:
+
+        st.warning(
+            "No M5 candles available."
+        )
+
+    st.subheader(
+        "🕯️ Live M15"
+    )
+
+    m15_display = style_dataframe(
+        st.session_state[
+            "m15_bars"
+        ],
+        rows=15,
+    )
+
+    if not m15_display.empty:
+
+        st.dataframe(
+            m15_display,
+            use_container_width=True,
+        )
+
+    else:
+
+        st.warning(
+            "No M15 candles available."
+        )
+
+
+# ============================================================
+# MAIN PAGE
+# ============================================================
+
+st.title(
+    "🐎 Quantum X V2.2"
+)
+
+st.caption(
+    "Market Structure Layer — "
+    "M5 execution structure + M15 directional context."
+)
+
+st.info(
+    "V2.2 is a structure-analysis milestone. "
+    "Automatic trading is DISABLED."
+)
+
+
+# ------------------------------------------------------------
+# SIDEBAR
+# ------------------------------------------------------------
+
+with st.sidebar:
+
+    st.header(
+        "Quantum X V2.2"
+    )
+
+    st.write(
+        "Branch: `quantum-x-v2`"
+    )
+
+    st.divider()
+
+    connect_clicked = st.button(
+        "🔌 Connect & Bootstrap",
+        use_container_width=True,
+        type="primary",
+    )
+
+    refresh_clicked = st.button(
+        "🔄 Refresh Data",
+        use_container_width=True,
+    )
+
+    st.divider()
+
+    st.write(
+        "**V2.2 Status**"
+    )
+
+    st.success(
+        "STRUCTURE ENGINE: ON"
+    )
+
+    st.success(
+        "AUTOMATIC TRADING: OFF"
+    )
+
+    st.write(
+        "M5 swing window: "
+        f"`{STRUCTURE_SWING_LEFT}/{STRUCTURE_SWING_RIGHT}`"
+    )
+
+    st.write(
+        "Startup target: "
+        f"≤ {MAX_STARTUP_SECONDS // 60} minutes"
+    )
+
+
+# ------------------------------------------------------------
+# CONNECT / BOOTSTRAP
+# ------------------------------------------------------------
+
+if connect_clicked:
+
+    with st.spinner(
+        "Connecting to IG Demo and loading M5/M15 data..."
+    ):
+
+        try:
+
+            elapsed = bootstrap_data()
+
+            st.success(
+                f"V2.2 Data Engine ready in "
+                f"{elapsed:.1f} seconds."
+            )
+
+        except Exception as exc:
+
+            st.session_state[
+                "last_error"
+            ] = str(exc)
+
+            st.error(
+                f"Bootstrap failed: {exc}"
+            )
+
+
+# ------------------------------------------------------------
+# MANUAL REFRESH
+# ------------------------------------------------------------
+
+if refresh_clicked:
+
+    if not st.session_state[
+        "ig_connected"
+    ]:
+
+        st.warning(
+            "Connect to IG first."
+        )
+
+    else:
+
+        try:
+
+            live_data_tick()
+
+            st.success(
+                "Live M5/M15 data refreshed."
+            )
+
+        except Exception as exc:
+
+            st.session_state[
+                "last_error"
+            ] = str(exc)
+
+            st.error(
+                f"Refresh failed: {exc}"
+            )
+
+
+# ------------------------------------------------------------
+# AUTOMATIC LIVE DATA LOOP
+# ------------------------------------------------------------
+
+if (
+    st.session_state[
+        "ig_connected"
+    ]
+    and st.session_state[
+        "bootstrap_complete"
+    ]
+):
+
+    @st.fragment(
+        run_every=POLL_SECONDS
+    )
+    def live_engine_fragment():
+
+        try:
+
+            live_data_tick()
+
+        except Exception as exc:
+
+            st.session_state[
+                "last_error"
+            ] = str(exc)
+
+        st.subheader(
+            "📊 Live Status"
+        )
+
+        render_status_cards()
+
+        if st.session_state[
+            "last_error"
+        ]:
+
+            st.error(
+                st.session_state[
+                    "last_error"
+                ]
+            )
+
+        render_data_details()
+
+        render_structure_dashboard()
+
+        render_live_candle_tables()
+
+        st.caption(
+            f"Live engine refresh: "
+            f"every {POLL_SECONDS} seconds"
+        )
+
+    live_engine_fragment()
+
+else:
+
+    st.subheader(
+        "📡 Waiting for Data Engine"
+    )
+
+    st.write(
+        "Press **Connect & Bootstrap** "
+        "in the sidebar."
+    )
+
+    st.write(
+        "The engine will load recent Yahoo "
+        "M5/M15 structure and connect it to "
+        "live IG XAU/USD pricing."
+    )
+
+
+# ------------------------------------------------------------
+# FOOTER
+# ------------------------------------------------------------
+
+st.divider()
+
+st.caption(
+    "Quantum X V2.2 — Market Structure milestone | "
+    "IG Demo execution disabled"
+)
+
+st.caption(
+    "M15 = directional context | "
+    "M5 = execution structure | "
+    "BOS/CHOCH = structure information only"
+)
+
+
+# ============================================================
+# END OF QUANTUM X V2.2
+# ============================================================
+#
+# V2.2 currently provides:
+#
+#   ✔ IG Demo live XAU/USD
+#   ✔ Yahoo GC=F M5/M15 bootstrap
+#   ✔ IG/Yahoo calibration
+#   ✔ Live M5/M15 candles
+#   ✔ Swing highs/lows
+#   ✔ HH / HL / LH / LL
+#   ✔ M5 structure
+#   ✔ M15 structure
+#   ✔ BOS
+#   ✔ CHOCH
+#   ✔ M5/M15 alignment
+#
+# V2.2 DOES NOT PLACE TRADES.
+#
+# Future layers:
+#
+# V2.3  Liquidity + upgraded S/R
+# V2.4  Order Blocks + FVG
+# V2.5  VWAP + ATR + Volume
+# V2.6  Fibonacci Confluence
+# V2.7  Entry Engine
+# V2.8  Exit + Risk Engine
+# V2.9  Demo Validation
+# V2.10 Automated Demo Execution
+# ============================================================
