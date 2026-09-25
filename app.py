@@ -867,4 +867,178 @@ st.info(
 
 # ------------------------------------------------------------
 # SIDEBAR
-# --------------------------------------------
+# ------------------------------------------------------------
+
+with st.sidebar:
+    st.header("Quantum X V2.1")
+
+    st.write(
+        "Branch: `quantum-x-v2`"
+    )
+
+    st.divider()
+
+    connect_clicked = st.button(
+        "🔌 Connect & Bootstrap",
+        use_container_width=True,
+        type="primary",
+    )
+
+    refresh_clicked = st.button(
+        "🔄 Refresh Data",
+        use_container_width=True,
+    )
+
+    st.divider()
+
+    st.write("**Safety**")
+    st.success("AUTOMATIC TRADING: OFF")
+
+    st.write(
+        "Startup target: "
+        f"≤ {MAX_STARTUP_SECONDS // 60} minutes"
+    )
+
+
+# ------------------------------------------------------------
+# CONNECT / BOOTSTRAP
+# ------------------------------------------------------------
+
+if connect_clicked:
+    with st.spinner(
+        "Connecting to IG Demo and loading M5/M15 data..."
+    ):
+        try:
+            elapsed = bootstrap_data()
+
+            st.success(
+                f"V2.1 Data Engine ready in "
+                f"{elapsed:.1f} seconds."
+            )
+
+        except Exception as exc:
+            st.session_state["last_error"] = str(exc)
+
+            st.error(
+                f"Bootstrap failed: {exc}"
+            )
+
+
+# ------------------------------------------------------------
+# MANUAL REFRESH
+# ------------------------------------------------------------
+
+if refresh_clicked:
+    if not st.session_state["ig_connected"]:
+        st.warning(
+            "Connect to IG first."
+        )
+    else:
+        try:
+            live_data_tick()
+
+            st.success(
+                "Live M5/M15 data refreshed."
+            )
+
+        except Exception as exc:
+            st.session_state["last_error"] = str(exc)
+
+            st.error(
+                f"Refresh failed: {exc}"
+            )
+
+
+# ------------------------------------------------------------
+# AUTOMATIC LIVE DATA LOOP
+# ------------------------------------------------------------
+
+if (
+    st.session_state["ig_connected"]
+    and st.session_state["bootstrap_complete"]
+):
+
+    @st.fragment(run_every=POLL_SECONDS)
+    def live_engine_fragment():
+
+        try:
+            live_data_tick()
+
+        except Exception as exc:
+            st.session_state["last_error"] = str(exc)
+
+        st.subheader("📊 Live Status")
+
+        render_status_cards()
+
+        if st.session_state["last_error"]:
+            st.error(
+                st.session_state["last_error"]
+            )
+
+        render_data_details()
+
+        st.subheader("🕯️ Live M5")
+
+        m5_display = style_dataframe(
+            st.session_state["m5_bars"],
+            rows=20,
+        )
+
+        if not m5_display.empty:
+            st.dataframe(
+                m5_display,
+                use_container_width=True,
+            )
+        else:
+            st.warning(
+                "No M5 candles available."
+            )
+
+        st.subheader("🕯️ Live M15")
+
+        m15_display = style_dataframe(
+            st.session_state["m15_bars"],
+            rows=15,
+        )
+
+        if not m15_display.empty:
+            st.dataframe(
+                m15_display,
+                use_container_width=True,
+            )
+        else:
+            st.warning(
+                "No M15 candles available."
+            )
+
+        st.caption(
+            f"Live engine refresh: every {POLL_SECONDS} seconds"
+        )
+
+    live_engine_fragment()
+
+else:
+
+    st.subheader("📡 Waiting for Data Engine")
+
+    st.write(
+        "Press **Connect & Bootstrap** in the sidebar."
+    )
+
+    st.write(
+        "The engine will load recent Yahoo M5/M15 "
+        "structure and connect it to live IG XAU/USD pricing."
+    )
+
+
+# ------------------------------------------------------------
+# FOOTER
+# ------------------------------------------------------------
+
+st.divider()
+
+st.caption(
+    "Quantum X V2.1 — Data Engine only | "
+    "IG Demo execution disabled"
+    )
