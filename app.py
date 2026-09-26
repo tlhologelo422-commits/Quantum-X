@@ -4150,3 +4150,537 @@ def build_v23_snapshot(
 
         "live_price": live_price,
 }
+# ============================================================
+# QUANTUM X V2.3 — LIQUIDITY + UPGRADED S/R
+# HALF 2 — PART 2B
+# ============================================================
+
+# ------------------------------------------------------------
+# V2.3 DISPLAY HELPERS
+# ------------------------------------------------------------
+
+def format_price_value(value):
+    """
+    Format XAU/USD prices consistently.
+    """
+    if value is None:
+        return "—"
+
+    try:
+        return f"{float(value):,.2f}"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def format_distance_value(value):
+    """
+    Format price distance values.
+    """
+    if value is None:
+        return "—"
+
+    try:
+        return f"{float(value):,.2f}"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def liquidity_strength_label(level):
+    """
+    Convert the numeric liquidity score into a readable label.
+    """
+    if not level:
+        return "—"
+
+    strength = str(
+        level.get("strength", "")
+    ).upper()
+
+    if strength:
+        return strength
+
+    score = int(
+        level.get("score", 0)
+    )
+
+    if score >= 4:
+        return "HIGH"
+
+    if score >= 2:
+        return "MEDIUM"
+
+    return "LOW"
+
+
+# ------------------------------------------------------------
+# V2.3 LIQUIDITY TABLE
+# ------------------------------------------------------------
+
+def render_liquidity_table(
+    levels,
+    title,
+):
+    """
+    Render a compact liquidity table.
+    """
+    st.markdown(
+        f"#### {title}"
+    )
+
+    if not levels:
+        st.info(
+            "No confirmed liquidity levels yet."
+        )
+        return
+
+    rows = []
+
+    for level in levels:
+
+        rows.append(
+            {
+                "Level": format_price_value(
+                    level.get("level")
+                ),
+                "Type": level.get(
+                    "type",
+                    "—",
+                ),
+                "Source": ", ".join(
+                    level.get(
+                        "sources",
+                        [],
+                    )
+                ),
+                "Touches": int(
+                    level.get(
+                        "touches",
+                        0,
+                    )
+                ),
+                "Score": int(
+                    level.get(
+                        "score",
+                        0,
+                    )
+                ),
+                "Strength": liquidity_strength_label(
+                    level
+                ),
+            }
+        )
+
+    table = pd.DataFrame(rows)
+
+    st.dataframe(
+        table,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
+# ------------------------------------------------------------
+# V2.3 S/R ZONE TABLE
+# ------------------------------------------------------------
+
+def render_sr_zone_table(
+    zones,
+    title,
+):
+    """
+    Render support/resistance zones.
+    """
+    st.markdown(
+        f"#### {title}"
+    )
+
+    if not zones:
+        st.info(
+            "No confirmed zones yet."
+        )
+        return
+
+    rows = []
+
+    for zone in zones:
+
+        rows.append(
+            {
+                "Level": format_price_value(
+                    zone.get("level")
+                ),
+                "Lower": format_price_value(
+                    zone.get("lower")
+                ),
+                "Upper": format_price_value(
+                    zone.get("upper")
+                ),
+                "Source": zone.get(
+                    "source",
+                    "—",
+                ),
+                "Strength": int(
+                    zone.get(
+                        "strength",
+                        0,
+                    )
+                ),
+            }
+        )
+
+    table = pd.DataFrame(rows)
+
+    st.dataframe(
+        table,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
+# ------------------------------------------------------------
+# V2.3 PRICE CONTEXT DISPLAY
+# ------------------------------------------------------------
+
+def render_price_context(
+    snapshot,
+):
+    """
+    Display current price relationship to M5/M15
+    liquidity and S/R.
+    """
+    context = snapshot.get(
+        "price_context",
+        {},
+    )
+
+    if not context:
+        return
+
+    st.markdown(
+        "### 🎯 Current Price Context"
+    )
+
+    price = context.get(
+        "price"
+    )
+
+    st.metric(
+        "IG Live Price",
+        format_price_value(price),
+    )
+
+    m5_context = context.get(
+        "m5",
+        {},
+    )
+
+    m15_context = context.get(
+        "m15",
+        {},
+    )
+
+    m5_location = m5_context.get(
+        "location",
+        {},
+    )
+
+    m15_location = m15_context.get(
+        "location",
+        {},
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        st.markdown(
+            "#### M5"
+        )
+
+        st.write(
+            f"**Location:** "
+            f"{m5_location.get('location', '—')}"
+        )
+
+        st.write(
+            f"**Nearest S/R:** "
+            f"{format_price_value(m5_location.get('level'))}"
+        )
+
+        st.write(
+            f"**Distance:** "
+            f"{format_distance_value(m5_location.get('distance'))}"
+        )
+
+    with col2:
+
+        st.markdown(
+            "#### M15"
+        )
+
+        st.write(
+            f"**Location:** "
+            f"{m15_location.get('location', '—')}"
+        )
+
+        st.write(
+            f"**Nearest S/R:** "
+            f"{format_price_value(m15_location.get('level'))}"
+        )
+
+        st.write(
+            f"**Distance:** "
+            f"{format_distance_value(m15_location.get('distance'))}"
+        )
+
+
+# ------------------------------------------------------------
+# V2.3 NEAREST LIQUIDITY DISPLAY
+# ------------------------------------------------------------
+
+def render_nearest_liquidity(
+    snapshot,
+):
+    """
+    Display closest liquidity above and below live price.
+    """
+    st.markdown(
+        "### 💧 Nearest Liquidity"
+    )
+
+    m5 = snapshot.get(
+        "m5_distance",
+        {},
+    )
+
+    m15 = snapshot.get(
+        "m15_distance",
+        {},
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        st.markdown(
+            "#### M5"
+        )
+
+        st.write(
+            f"**Above:** "
+            f"{format_price_value(m5.get('above_price'))}"
+        )
+
+        st.write(
+            f"**Distance:** "
+            f"{format_distance_value(m5.get('above_distance'))}"
+        )
+
+        st.write(
+            f"**Side:** "
+            f"{m5.get('above_side') or '—'}"
+        )
+
+        st.write(
+            f"**Below:** "
+            f"{format_price_value(m5.get('below_price'))}"
+        )
+
+        st.write(
+            f"**Distance:** "
+            f"{format_distance_value(m5.get('below_distance'))}"
+        )
+
+        st.write(
+            f"**Side:** "
+            f"{m5.get('below_side') or '—'}"
+        )
+
+    with col2:
+
+        st.markdown(
+            "#### M15"
+        )
+
+        st.write(
+            f"**Above:** "
+            f"{format_price_value(m15.get('above_price'))}"
+        )
+
+        st.write(
+            f"**Distance:** "
+            f"{format_distance_value(m15.get('above_distance'))}"
+        )
+
+        st.write(
+            f"**Side:** "
+            f"{m15.get('above_side') or '—'}"
+        )
+
+        st.write(
+            f"**Below:** "
+            f"{format_price_value(m15.get('below_price'))}"
+        )
+
+        st.write(
+            f"**Distance:** "
+            f"{format_distance_value(m15.get('below_distance'))}"
+        )
+
+        st.write(
+            f"**Side:** "
+            f"{m15.get('below_side') or '—'}"
+        )
+
+
+# ------------------------------------------------------------
+# V2.3 COMPLETE DASHBOARD
+# ------------------------------------------------------------
+
+def render_v23_liquidity_dashboard(
+    snapshot,
+):
+    """
+    Render the complete V2.3 liquidity dashboard.
+    """
+    if not snapshot:
+        return
+
+    st.markdown(
+        "---"
+    )
+
+    st.markdown(
+        "## 💧 V2.3 Liquidity Intelligence"
+    )
+
+    status = snapshot.get(
+        "status",
+        "UNKNOWN",
+    )
+
+    if status == "READY":
+
+        st.success(
+            "Liquidity engine healthy — "
+            "M5 + M15 market map available."
+        )
+
+    elif status == "PARTIAL":
+
+        st.warning(
+            "Liquidity engine partially ready."
+        )
+
+    else:
+
+        st.info(
+            f"Liquidity engine status: {status}"
+        )
+
+    render_price_context(
+        snapshot
+    )
+
+    render_nearest_liquidity(
+        snapshot
+    )
+
+    market_map = snapshot.get(
+        "market_map",
+        {},
+    )
+
+    m5_map = market_map.get(
+        "m5",
+        {},
+    )
+
+    m15_map = market_map.get(
+        "m15",
+        {},
+    )
+
+    m5_liquidity = m5_map.get(
+        "liquidity",
+        {},
+    )
+
+    m15_liquidity = m15_map.get(
+        "liquidity",
+        {},
+    )
+
+    m5_sr = m5_map.get(
+        "sr",
+        {},
+    )
+
+    m15_sr = m15_map.get(
+        "sr",
+        {},
+    )
+
+    # --------------------------------------------------------
+    # M5 LIQUIDITY
+    # --------------------------------------------------------
+
+    st.markdown(
+        "### 📊 M5 Liquidity Map"
+    )
+
+    render_liquidity_table(
+        m5_liquidity.get(
+            "levels",
+            [],
+        ),
+        "M5 Liquidity Levels",
+    )
+
+    render_sr_zone_table(
+        m5_sr.get(
+            "support",
+            [],
+        ),
+        "M5 Support Zones",
+    )
+
+    render_sr_zone_table(
+        m5_sr.get(
+            "resistance",
+            [],
+        ),
+        "M5 Resistance Zones",
+    )
+
+    # --------------------------------------------------------
+    # M15 LIQUIDITY
+    # --------------------------------------------------------
+
+    st.markdown(
+        "### 📊 M15 Liquidity Map"
+    )
+
+    render_liquidity_table(
+        m15_liquidity.get(
+            "levels",
+            [],
+        ),
+        "M15 Liquidity Levels",
+    )
+
+    render_sr_zone_table(
+        m15_sr.get(
+            "support",
+            [],
+        ),
+        "M15 Support Zones",
+    )
+
+    render_sr_zone_table(
+        m15_sr.get(
+            "resistance",
+            [],
+        ),
+        "M15 Resistance Zones",
+    )
