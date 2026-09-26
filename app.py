@@ -2679,3 +2679,412 @@ st.caption(
 # V2.9  Demo Validation
 # V2.10 Automated Demo Execution
 # ============================================================
+# ============================================================
+# QUANTUM X V2.3 — LIQUIDITY + UPGRADED S/R
+# HALF 1 — PART 1A
+# ============================================================
+
+# ------------------------------------------------------------
+# V2.3 CONFIGURATION
+# ------------------------------------------------------------
+
+LIQUIDITY_TOLERANCE_ATR = 0.20
+SR_ZONE_ATR_MULTIPLIER = 0.35
+MAX_LIQUIDITY_LEVELS = 12
+MAX_SR_ZONES = 8
+
+# Session windows are UTC.
+# These are contextual levels only — NOT trading sessions.
+ASIA_START_HOUR = 0
+ASIA_END_HOUR = 8
+
+LONDON_START_HOUR = 7
+LONDON_END_HOUR = 16
+
+NEW_YORK_START_HOUR = 13
+NEW_YORK_END_HOUR = 21
+
+
+# ------------------------------------------------------------
+# V2.3 DATA HELPERS
+# ------------------------------------------------------------
+
+def get_completed_candles(df):
+    """
+    Return only completed candles.
+
+    The currently forming candle is excluded so liquidity and
+    support/resistance levels are not distorted by live movement.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    data = df.copy()
+
+    if not isinstance(data.index, pd.DatetimeIndex):
+        data.index = pd.to_datetime(data.index, utc=True)
+
+    data = data.sort_index()
+
+    if len(data) < 5:
+        return data.iloc[0:0].copy()
+
+    current_bucket = (
+        pd.Timestamp.now(tz="UTC")
+        .floor("5min")
+    )
+
+    completed = data[data.index < current_bucket].copy()
+
+    return completed
+
+
+def calculate_v23_atr(df, period=14):
+    """
+    ATR-style volatility measurement used to determine
+    reasonable liquidity/S&R clustering distances.
+    """
+    if df is None or df.empty:
+        return 0.0
+
+    data = df.copy()
+
+    required = {"high", "low", "close"}
+
+    if not required.issubset(data.columns):
+        return 0.0
+
+    previous_close = data["close"].shift(1)
+
+    true_range = pd.concat(
+        [
+            data["high"] - data["low"],
+            (data["high"] - previous_close).abs(),
+            (data["low"] - previous_close).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
+
+    atr = true_range.rolling(
+        window=period,
+        min_periods=max(3, period // 2),
+    ).mean()
+
+    value = atr.iloc[-1]
+
+    if pd.isna(value):
+        return 0.0
+
+    return float(value)
+
+
+def price_distance(price_a, price_b):
+    """
+    Absolute distance between two prices.
+    """
+    try:
+        return abs(float(price_a) - float(price_b))
+    except (TypeError, ValueError):
+        return float("inf")
+
+
+def levels_are_close(level_a, level_b, tolerance):
+    """
+    Determines whether two price levels belong to the same
+    liquidity/S&R area.
+    """
+    return price_distance(level_a, level_b) <= tolerance
+
+
+# ------------------------------------------------------------
+# V2.3 SWING EXTRACTION
+# ------------------------------------------------------------
+
+def detect_v23_swings(df, left=2, right=2):
+    """
+    Detect confirmed swing highs and swing lows.
+
+    A swing is confirmed only when candles exist on both sides.
+    This prevents the current candle from creating artificial
+    liquidity levels.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    data = get_completed_candles(df)
+
+    if len(data) < left + right + 1:
+        return pd.DataFrame(), pd.DataFrame()
+
+    swing_highs = []
+    swing_lows = []
+
+    for i in range(left, len(data) - right):
+        row = data.iloc[i]
+
+        left_highs = data["high"].iloc[i - left:i]
+        right_highs = data["high"].iloc[i + 1:i + right + 1]
+
+        left_lows = data["low"].iloc[i - left:i]
+        right_lows = data["low"].iloc[i + 1:i + right + 1]
+
+        if (
+            float(row["high"]) > float(left_highs.max())
+            and float(row["high"]) > float(right_highs.max())
+        ):
+            swing_highs.append(
+                {
+                    "time": data.index[i],
+                    "price": float(row["high"]),
+                }
+            )
+
+        if (
+            float(row["low"]) < float(left_lows.min())
+            and float(row["low"]) < float(right_lows.min())
+        ):
+            swing_lows.append(
+                {
+                    "time": data.index[i],
+                    "price": float(row["low"]),
+                }
+            )
+
+    high_df = pd.DataFrame(swing_highs)
+    low_df = pd.DataFrame(swing_lows)
+
+    return high_df, low_df
+
+
+# ------------------------------------------------------------
+# V2.3 EQUAL HIGH / LOW DETECTION
+# ------------------------------------------------------------
+
+def detect_equal_highs(highs_df, tolerance):
+    """
+    Detect clusters of swing highs that are close enough to be
+    treated as buy-side liquidity.
+    """
+    if highs_df is None or highs_df.empty:
+        return []
+
+    levels = []
+
+    for _, row in highs_df.iterrows():
+        price = float(row["price"])
+
+        matched = None
+
+        for cluster in levels:
+            if levels_are_close(
+                price,
+                cluster["level"],
+                tolerance,
+            ):
+                matched = cluster
+                break
+
+        if matched is not None:
+            matched["prices"].append(price)
+            matched["times"].append(row["time"])
+            matched["level"] = sum(matched["prices"]) / len(
+                matched["prices"]
+            )
+            matched["touches"] = len(matched["prices"])
+        else:
+            levels.append(
+                {
+                    "level": price,
+                    "prices": [price],
+                    "times": [row["time"]],
+                    "touches": 1,
+                    "type": "EQUAL HIGH",
+                }
+            )
+
+    return [
+        level
+        for level in levels
+        if level["touches"] >= 2
+    ]
+
+
+def detect_equal_lows(lows_df, tolerance):
+    """
+    Detect clusters of swing lows that are close enough to be
+    treated as sell-side liquidity.
+    """
+    if lows_df is None or lows_df.empty:
+        return []
+
+    levels = []
+
+    for _, row in lows_df.iterrows():
+        price = float(row["price"])
+
+        matched = None
+
+        for cluster in levels:
+            if levels_are_close(
+                price,
+                cluster["level"],
+                tolerance,
+            ):
+                matched = cluster
+                break
+
+        if matched is not None:
+            matched["prices"].append(price)
+            matched["times"].append(row["time"])
+            matched["level"] = sum(matched["prices"]) / len(
+                matched["prices"]
+            )
+            matched["touches"] = len(matched["prices"])
+        else:
+            levels.append(
+                {
+                    "level": price,
+                    "prices": [price],
+                    "times": [row["time"]],
+                    "touches": 1,
+                    "type": "EQUAL LOW",
+                }
+            )
+
+    return [
+        level
+        for level in levels
+        if level["touches"] >= 2
+    ]
+
+
+# ------------------------------------------------------------
+# V2.3 PRIOR EXTREMES
+# ------------------------------------------------------------
+
+def get_previous_day_levels(df):
+    """
+    Calculate previous UTC trading-day high and low.
+
+    These levels are important external liquidity references.
+    """
+    if df is None or df.empty:
+        return {}
+
+    data = df.copy()
+
+    if not isinstance(data.index, pd.DatetimeIndex):
+        data.index = pd.to_datetime(data.index, utc=True)
+
+    data = data.sort_index()
+
+    completed = get_completed_candles(data)
+
+    if completed.empty:
+        return {}
+
+    current_day = completed.index[-1].date()
+
+    previous_days = completed[
+        completed.index.date < current_day
+    ]
+
+    if previous_days.empty:
+        return {}
+
+    previous_day = previous_days.index.date[-1]
+
+    previous_data = completed[
+        completed.index.date == previous_day
+    ]
+
+    if previous_data.empty:
+        return {}
+
+    return {
+        "previous_day_high": float(
+            previous_data["high"].max()
+        ),
+        "previous_day_low": float(
+            previous_data["low"].min()
+        ),
+        "date": str(previous_day),
+    }
+
+
+# ------------------------------------------------------------
+# V2.3 SESSION EXTREMES
+# ------------------------------------------------------------
+
+def get_session_levels(df):
+    """
+    Calculate Asia, London and New York session highs/lows
+    from completed candles.
+
+    These are liquidity references, not direct entry signals.
+    """
+    if df is None or df.empty:
+        return []
+
+    data = get_completed_candles(df)
+
+    if data.empty:
+        return []
+
+    sessions = [
+        (
+            "ASIA",
+            ASIA_START_HOUR,
+            ASIA_END_HOUR,
+        ),
+        (
+            "LONDON",
+            LONDON_START_HOUR,
+            LONDON_END_HOUR,
+        ),
+        (
+            "NEW YORK",
+            NEW_YORK_START_HOUR,
+            NEW_YORK_END_HOUR,
+        ),
+    ]
+
+    results = []
+
+    for name, start_hour, end_hour in sessions:
+
+        hours = data.index.hour
+
+        if start_hour < end_hour:
+            mask = (
+                (hours >= start_hour)
+                & (hours < end_hour)
+            )
+        else:
+            mask = (
+                (hours >= start_hour)
+                | (hours < end_hour)
+            )
+
+        session_data = data.loc[mask]
+
+        if session_data.empty:
+            continue
+
+        results.append(
+            {
+                "type": f"{name} HIGH",
+                "level": float(session_data["high"].max()),
+                "session": name,
+            }
+        )
+
+        results.append(
+            {
+                "type": f"{name} LOW",
+                "level": float(session_data["low"].min()),
+                "session": name,
+            }
+        )
+
+    return results
