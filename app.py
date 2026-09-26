@@ -1,4 +1,4 @@
-import time
+I'mimport time
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -3088,3 +3088,516 @@ def get_session_levels(df):
         )
 
     return results
+# ============================================================
+# QUANTUM X V2.3 — LIQUIDITY + UPGRADED S/R
+# HALF 1 — PART 1B
+# ============================================================
+
+# ------------------------------------------------------------
+# V2.3 LIQUIDITY LEVEL NORMALIZATION
+# ------------------------------------------------------------
+
+def add_liquidity_level(levels, level, level_type, source, score=1):
+    """
+    Add a liquidity level while preventing duplicate levels.
+
+    A level receives a score based on how many independent
+    sources identify approximately the same price.
+    """
+    if level is None:
+        return levels
+
+    try:
+        price = float(level)
+    except (TypeError, ValueError):
+        return levels
+
+    if not pd.notna(price):
+        return levels
+
+    for existing in levels:
+        if levels_are_close(
+            price,
+            existing["level"],
+            existing["tolerance"],
+        ):
+            existing["level"] = (
+                existing["level"] + price
+            ) / 2.0
+
+            existing["score"] += int(score)
+
+            if source not in existing["sources"]:
+                existing["sources"].append(source)
+
+            if level_type not in existing["types"]:
+                existing["types"].append(level_type)
+
+            existing["touches"] += 1
+
+            return levels
+
+    levels.append(
+        {
+            "level": price,
+            "type": level_type,
+            "types": [level_type],
+            "source": source,
+            "sources": [source],
+            "score": int(score),
+            "touches": 1,
+            "tolerance": 0.01,
+        }
+    )
+
+    return levels
+
+
+def finalize_liquidity_levels(levels, atr):
+    """
+    Apply an ATR-based tolerance and produce a clean liquidity
+    level list for the dashboard.
+    """
+    if not levels:
+        return []
+
+    if atr <= 0:
+        tolerance = 0.50
+    else:
+        tolerance = max(
+            0.20,
+            atr * LIQUIDITY_TOLERANCE_ATR,
+        )
+
+    finalized = []
+
+    for item in levels:
+        cleaned = item.copy()
+        cleaned["tolerance"] = tolerance
+
+        cleaned["score"] = max(
+            1,
+            int(cleaned.get("score", 1)),
+        )
+
+        cleaned["strength"] = (
+            "HIGH"
+            if cleaned["score"] >= 4
+            else "MEDIUM"
+            if cleaned["score"] >= 2
+            else "LOW"
+        )
+
+        finalized.append(cleaned)
+
+    finalized.sort(
+        key=lambda x: (
+            -x["score"],
+            -x["touches"],
+        )
+    )
+
+    return finalized[:MAX_LIQUIDITY_LEVELS]
+
+
+# ------------------------------------------------------------
+# V2.3 BUILD COMPLETE LIQUIDITY MAP
+# ------------------------------------------------------------
+
+def build_liquidity_map(df):
+    """
+    Build a complete liquidity map from:
+
+    - Equal highs
+    - Equal lows
+    - Previous day high/low
+    - Session highs/lows
+    - Recent swing highs/lows
+
+    This function only maps market structure.
+    It does NOT generate trading orders.
+    """
+    if df is None or df.empty:
+        return {
+            "levels": [],
+            "buy_side": [],
+            "sell_side": [],
+            "atr": 0.0,
+            "status": "NO DATA",
+        }
+
+    completed = get_completed_candles(df)
+
+    if completed.empty:
+        return {
+            "levels": [],
+            "buy_side": [],
+            "sell_side": [],
+            "atr": 0.0,
+            "status": "WAITING FOR COMPLETED CANDLES",
+        }
+
+    atr = calculate_v23_atr(completed)
+
+    swing_highs, swing_lows = detect_v23_swings(
+        completed
+    )
+
+    if atr > 0:
+        tolerance = max(
+            0.20,
+            atr * LIQUIDITY_TOLERANCE_ATR,
+        )
+    else:
+        tolerance = 0.50
+
+    equal_highs = detect_equal_highs(
+        swing_highs,
+        tolerance,
+    )
+
+    equal_lows = detect_equal_lows(
+        swing_lows,
+        tolerance,
+    )
+
+    levels = []
+
+    # --------------------------------------------------------
+    # Equal highs = buy-side liquidity
+    # --------------------------------------------------------
+
+    for item in equal_highs:
+        levels = add_liquidity_level(
+            levels,
+            item["level"],
+            "BUY-SIDE LIQUIDITY",
+            "Equal High",
+            score=3 + item["touches"],
+        )
+
+    # --------------------------------------------------------
+    # Equal lows = sell-side liquidity
+    # --------------------------------------------------------
+
+    for item in equal_lows:
+        levels = add_liquidity_level(
+            levels,
+            item["level"],
+            "SELL-SIDE LIQUIDITY",
+            "Equal Low",
+            score=3 + item["touches"],
+        )
+
+    # --------------------------------------------------------
+    # Swing highs/lows
+    # --------------------------------------------------------
+
+    if not swing_highs.empty:
+
+        recent_highs = swing_highs.tail(8)
+
+        for _, row in recent_highs.iterrows():
+
+            levels = add_liquidity_level(
+                levels,
+                row["price"],
+                "BUY-SIDE",
+                "Swing High",
+                score=1,
+            )
+
+    if not swing_lows.empty:
+
+        recent_lows = swing_lows.tail(8)
+
+        for _, row in recent_lows.iterrows():
+
+            levels = add_liquidity_level(
+                levels,
+                row["price"],
+                "SELL-SIDE",
+                "Swing Low",
+                score=1,
+            )
+
+    # --------------------------------------------------------
+    # Previous day high / low
+    # --------------------------------------------------------
+
+    previous_day = get_previous_day_levels(
+        completed
+    )
+
+    if previous_day:
+
+        if "previous_day_high" in previous_day:
+
+            levels = add_liquidity_level(
+                levels,
+                previous_day["previous_day_high"],
+                "BUY-SIDE",
+                "Previous Day High",
+                score=4,
+            )
+
+        if "previous_day_low" in previous_day:
+
+            levels = add_liquidity_level(
+                levels,
+                previous_day["previous_day_low"],
+                "SELL-SIDE",
+                "Previous Day Low",
+                score=4,
+            )
+
+    # --------------------------------------------------------
+    # Session highs/lows
+    # --------------------------------------------------------
+
+    session_levels = get_session_levels(
+        completed
+    )
+
+    for item in session_levels:
+
+        level_type = str(
+            item["type"]
+        ).upper()
+
+        if "HIGH" in level_type:
+            side = "BUY-SIDE"
+        else:
+            side = "SELL-SIDE"
+
+        levels = add_liquidity_level(
+            levels,
+            item["level"],
+            side,
+            item["session"],
+            score=2,
+        )
+
+    # --------------------------------------------------------
+    # Finalize
+    # --------------------------------------------------------
+
+    finalized = finalize_liquidity_levels(
+        levels,
+        atr,
+    )
+
+    buy_side = [
+        item
+        for item in finalized
+        if (
+            "BUY-SIDE" in item["type"]
+            or "BUY-SIDE" in item["types"]
+            or any(
+                "HIGH" in str(t).upper()
+                for t in item["types"]
+            )
+        )
+    ]
+
+    sell_side = [
+        item
+        for item in finalized
+        if (
+            "SELL-SIDE" in item["type"]
+            or "SELL-SIDE" in item["types"]
+            or any(
+                "LOW" in str(t).upper()
+                for t in item["types"]
+            )
+        )
+    ]
+
+    return {
+        "levels": finalized,
+        "buy_side": buy_side,
+        "sell_side": sell_side,
+        "atr": atr,
+        "tolerance": tolerance,
+        "swing_highs": swing_highs,
+        "swing_lows": swing_lows,
+        "previous_day": previous_day,
+        "session_levels": session_levels,
+        "status": "READY",
+    }
+
+
+# ------------------------------------------------------------
+# V2.3 SUPPORT / RESISTANCE ZONES
+# ------------------------------------------------------------
+
+def build_sr_zones(df):
+    """
+    Build upgraded support/resistance zones from confirmed
+    swing points and important liquidity references.
+
+    A zone has a center price and ATR-adjusted upper/lower
+    boundaries.
+    """
+    if df is None or df.empty:
+        return {
+            "support": [],
+            "resistance": [],
+            "atr": 0.0,
+        }
+
+    completed = get_completed_candles(df)
+
+    if completed.empty:
+        return {
+            "support": [],
+            "resistance": [],
+            "atr": 0.0,
+        }
+
+    atr = calculate_v23_atr(completed)
+
+    if atr <= 0:
+        zone_width = 0.50
+    else:
+        zone_width = max(
+            0.20,
+            atr * SR_ZONE_ATR_MULTIPLIER,
+        )
+
+    swing_highs, swing_lows = detect_v23_swings(
+        completed
+    )
+
+    resistance = []
+    support = []
+
+    # --------------------------------------------------------
+    # Resistance from swing highs
+    # --------------------------------------------------------
+
+    if not swing_highs.empty:
+
+        for _, row in swing_highs.tail(12).iterrows():
+
+            price = float(row["price"])
+
+            resistance.append(
+                {
+                    "level": price,
+                    "lower": price - zone_width,
+                    "upper": price + zone_width,
+                    "type": "RESISTANCE",
+                    "source": "Swing High",
+                    "strength": 1,
+                }
+            )
+
+    # --------------------------------------------------------
+    # Support from swing lows
+    # --------------------------------------------------------
+
+    if not swing_lows.empty:
+
+        for _, row in swing_lows.tail(12).iterrows():
+
+            price = float(row["price"])
+
+            support.append(
+                {
+                    "level": price,
+                    "lower": price - zone_width,
+                    "upper": price + zone_width,
+                    "type": "SUPPORT",
+                    "source": "Swing Low",
+                    "strength": 1,
+                }
+            )
+
+    # --------------------------------------------------------
+    # Merge nearby resistance zones
+    # --------------------------------------------------------
+
+    resistance = merge_sr_zones(
+        resistance,
+        zone_width,
+    )
+
+    # --------------------------------------------------------
+    # Merge nearby support zones
+    # --------------------------------------------------------
+
+    support = merge_sr_zones(
+        support,
+        zone_width,
+    )
+
+    return {
+        "support": support[:MAX_SR_ZONES],
+        "resistance": resistance[:MAX_SR_ZONES],
+        "atr": atr,
+        "zone_width": zone_width,
+    }
+
+
+def merge_sr_zones(zones, tolerance):
+    """
+    Merge nearby S/R zones into broader price areas.
+    """
+    if not zones:
+        return []
+
+    merged = []
+
+    for zone in sorted(
+        zones,
+        key=lambda x: x["level"],
+    ):
+
+        matched = None
+
+        for existing in merged:
+
+            if levels_are_close(
+                zone["level"],
+                existing["level"],
+                tolerance,
+            ):
+                matched = existing
+                break
+
+        if matched is not None:
+
+            matched["level"] = (
+                matched["level"]
+                + zone["level"]
+            ) / 2.0
+
+            matched["lower"] = min(
+                matched["lower"],
+                zone["lower"],
+            )
+
+            matched["upper"] = max(
+                matched["upper"],
+                zone["upper"],
+            )
+
+            matched["strength"] += (
+                zone.get("strength", 1)
+            )
+
+        else:
+
+            merged.append(
+                zone.copy()
+            )
+
+    merged.sort(
+        key=lambda x: (
+            -x["strength"],
+            x["level"],
+        )
+    )
+
+    return merged
