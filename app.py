@@ -3601,3 +3601,552 @@ def merge_sr_zones(zones, tolerance):
     )
 
     return merged
+# ============================================================
+# QUANTUM X V2.3 — LIQUIDITY + UPGRADED S/R
+# HALF 2 — PART 2A
+# ============================================================
+
+# ------------------------------------------------------------
+# V2.3 TIMEFRAME LIQUIDITY ENGINE
+# ------------------------------------------------------------
+
+def build_v23_timeframe_map(df, timeframe_name):
+    """
+    Build the complete V2.3 liquidity and S/R map for one
+    timeframe.
+
+    timeframe_name is normally M5 or M15.
+    """
+    if df is None or df.empty:
+        return {
+            "timeframe": timeframe_name,
+            "status": "NO DATA",
+            "liquidity": {},
+            "sr": {},
+        }
+
+    liquidity = build_liquidity_map(df)
+    sr = build_sr_zones(df)
+
+    return {
+        "timeframe": timeframe_name,
+        "status": (
+            "READY"
+            if liquidity.get("status") == "READY"
+            else liquidity.get("status", "WAITING")
+        ),
+        "liquidity": liquidity,
+        "sr": sr,
+    }
+
+
+# ------------------------------------------------------------
+# V2.3 BUILD M5 + M15 MARKET MAP
+# ------------------------------------------------------------
+
+def build_v23_market_map(m5_df, m15_df):
+    """
+    Build both execution-timeframe and higher-timeframe
+    liquidity maps.
+
+    M5:
+        Execution liquidity and S/R.
+
+    M15:
+        Higher-timeframe liquidity and S/R context.
+    """
+    m5_map = build_v23_timeframe_map(
+        m5_df,
+        "M5",
+    )
+
+    m15_map = build_v23_timeframe_map(
+        m15_df,
+        "M15",
+    )
+
+    return {
+        "m5": m5_map,
+        "m15": m15_map,
+        "status": (
+            "READY"
+            if (
+                m5_map["status"] == "READY"
+                and m15_map["status"] == "READY"
+            )
+            else "PARTIAL"
+        ),
+    }
+
+
+# ------------------------------------------------------------
+# V2.3 CURRENT PRICE LOCATION
+# ------------------------------------------------------------
+
+def classify_price_location(
+    price,
+    support_zones,
+    resistance_zones,
+    tolerance=0.0,
+):
+    """
+    Determine whether price is currently:
+
+        - Inside support
+        - Near support
+        - Inside resistance
+        - Near resistance
+        - Between levels
+    """
+    try:
+        current_price = float(price)
+    except (TypeError, ValueError):
+        return {
+            "location": "UNKNOWN",
+            "level": None,
+            "distance": None,
+        }
+
+    nearest_support = None
+    nearest_support_distance = float("inf")
+
+    for zone in support_zones or []:
+
+        lower = float(zone["lower"]) - tolerance
+        upper = float(zone["upper"]) + tolerance
+
+        if lower <= current_price <= upper:
+            return {
+                "location": "INSIDE SUPPORT",
+                "level": float(zone["level"]),
+                "distance": 0.0,
+                "zone": zone,
+            }
+
+        distance = min(
+            abs(current_price - lower),
+            abs(current_price - upper),
+            abs(current_price - float(zone["level"])),
+        )
+
+        if distance < nearest_support_distance:
+            nearest_support_distance = distance
+            nearest_support = zone
+
+    nearest_resistance = None
+    nearest_resistance_distance = float("inf")
+
+    for zone in resistance_zones or []:
+
+        lower = float(zone["lower"]) - tolerance
+        upper = float(zone["upper"]) + tolerance
+
+        if lower <= current_price <= upper:
+            return {
+                "location": "INSIDE RESISTANCE",
+                "level": float(zone["level"]),
+                "distance": 0.0,
+                "zone": zone,
+            }
+
+        distance = min(
+            abs(current_price - lower),
+            abs(current_price - upper),
+            abs(current_price - float(zone["level"])),
+        )
+
+        if distance < nearest_resistance_distance:
+            nearest_resistance_distance = distance
+            nearest_resistance = zone
+
+    candidates = []
+
+    if nearest_support is not None:
+        candidates.append(
+            (
+                nearest_support_distance,
+                "NEAR SUPPORT",
+                nearest_support,
+            )
+        )
+
+    if nearest_resistance is not None:
+        candidates.append(
+            (
+                nearest_resistance_distance,
+                "NEAR RESISTANCE",
+                nearest_resistance,
+            )
+        )
+
+    if not candidates:
+        return {
+            "location": "BETWEEN LEVELS",
+            "level": None,
+            "distance": None,
+        }
+
+    candidates.sort(key=lambda item: item[0])
+
+    distance, location, zone = candidates[0]
+
+    return {
+        "location": location,
+        "level": float(zone["level"]),
+        "distance": float(distance),
+        "zone": zone,
+    }
+
+
+# ------------------------------------------------------------
+# V2.3 NEAREST LIQUIDITY
+# ------------------------------------------------------------
+
+def find_nearest_liquidity(
+    price,
+    liquidity_levels,
+):
+    """
+    Find the closest liquidity level above and below current
+    price.
+
+    This does not predict a move. It only maps where liquidity
+    currently sits.
+    """
+    try:
+        current_price = float(price)
+    except (TypeError, ValueError):
+        return {
+            "above": None,
+            "below": None,
+        }
+
+    above = []
+    below = []
+
+    for item in liquidity_levels or []:
+
+        try:
+            level = float(item["level"])
+        except (TypeError, ValueError):
+            continue
+
+        if level > current_price:
+            above.append(
+                {
+                    **item,
+                    "distance": level - current_price,
+                }
+            )
+
+        elif level < current_price:
+            below.append(
+                {
+                    **item,
+                    "distance": current_price - level,
+                }
+            )
+
+    above.sort(
+        key=lambda item: item["distance"]
+    )
+
+    below.sort(
+        key=lambda item: item["distance"]
+    )
+
+    return {
+        "above": above[0] if above else None,
+        "below": below[0] if below else None,
+    }
+
+
+# ------------------------------------------------------------
+# V2.3 M5/M15 PRICE CONTEXT
+# ------------------------------------------------------------
+
+def build_price_context(
+    live_price,
+    market_map,
+):
+    """
+    Combine M5 and M15 liquidity/S&R information around the
+    current IG price.
+    """
+    if live_price is None:
+        return {
+            "status": "NO LIVE PRICE",
+        }
+
+    try:
+        price = float(live_price)
+    except (TypeError, ValueError):
+        return {
+            "status": "INVALID LIVE PRICE",
+        }
+
+    m5_map = market_map.get("m5", {})
+    m15_map = market_map.get("m15", {})
+
+    m5_liquidity = m5_map.get(
+        "liquidity",
+        {},
+    )
+
+    m15_liquidity = m15_map.get(
+        "liquidity",
+        {},
+    )
+
+    m5_sr = m5_map.get(
+        "sr",
+        {},
+    )
+
+    m15_sr = m15_map.get(
+        "sr",
+        {},
+    )
+
+    m5_liquidity_levels = m5_liquidity.get(
+        "levels",
+        [],
+    )
+
+    m15_liquidity_levels = m15_liquidity.get(
+        "levels",
+        [],
+    )
+
+    m5_nearest = find_nearest_liquidity(
+        price,
+        m5_liquidity_levels,
+    )
+
+    m15_nearest = find_nearest_liquidity(
+        price,
+        m15_liquidity.get(
+            "levels",
+            [],
+        ),
+    )
+
+    m5_location = classify_price_location(
+        price,
+        m5_sr.get("support", []),
+        m5_sr.get("resistance", []),
+        tolerance=m5_sr.get(
+            "zone_width",
+            0.0,
+        ),
+    )
+
+    m15_location = classify_price_location(
+        price,
+        m15_sr.get("support", []),
+        m15_sr.get("resistance", []),
+        tolerance=m15_sr.get(
+            "zone_width",
+            0.0,
+        ),
+    )
+
+    return {
+        "status": "READY",
+        "price": price,
+
+        "m5": {
+            "location": m5_location,
+            "nearest_liquidity": m5_nearest,
+            "support": m5_sr.get(
+                "support",
+                [],
+            ),
+            "resistance": m5_sr.get(
+                "resistance",
+                [],
+            ),
+        },
+
+        "m15": {
+            "location": m15_location,
+            "nearest_liquidity": m15_nearest,
+            "support": m15_sr.get(
+                "support",
+                [],
+            ),
+            "resistance": m15_sr.get(
+                "resistance",
+                [],
+            ),
+        },
+    }
+
+
+# ------------------------------------------------------------
+# V2.3 LIQUIDITY SIDE CLASSIFICATION
+# ------------------------------------------------------------
+
+def get_liquidity_side(level):
+    """
+    Normalize liquidity side classification.
+
+    HIGH / equal-high liquidity = buy-side
+    LOW / equal-low liquidity   = sell-side
+    """
+    if not level:
+        return "UNKNOWN"
+
+    level_type = str(
+        level.get("type", "")
+    ).upper()
+
+    level_types = " ".join(
+        str(item).upper()
+        for item in level.get(
+            "types",
+            [],
+        )
+    )
+
+    combined = (
+        level_type
+        + " "
+        + level_types
+    )
+
+    if (
+        "BUY-SIDE" in combined
+        or "HIGH" in combined
+    ):
+        return "BUY-SIDE"
+
+    if (
+        "SELL-SIDE" in combined
+        or "LOW" in combined
+    ):
+        return "SELL-SIDE"
+
+    return "UNKNOWN"
+
+
+# ------------------------------------------------------------
+# V2.3 LIQUIDITY DISTANCE SUMMARY
+# ------------------------------------------------------------
+
+def build_liquidity_distance_summary(
+    price,
+    liquidity_levels,
+):
+    """
+    Return the closest liquidity levels above and below price
+    together with their distances.
+    """
+    nearest = find_nearest_liquidity(
+        price,
+        liquidity_levels,
+    )
+
+    above = nearest.get("above")
+    below = nearest.get("below")
+
+    return {
+        "above_price": (
+            float(above["level"])
+            if above
+            else None
+        ),
+        "above_distance": (
+            float(above["distance"])
+            if above
+            else None
+        ),
+        "above_side": (
+            get_liquidity_side(above)
+            if above
+            else None
+        ),
+
+        "below_price": (
+            float(below["level"])
+            if below
+            else None
+        ),
+        "below_distance": (
+            float(below["distance"])
+            if below
+            else None
+        ),
+        "below_side": (
+            get_liquidity_side(below)
+            if below
+            else None
+        ),
+    }
+
+
+# ------------------------------------------------------------
+# V2.3 LIQUIDITY SNAPSHOT
+# ------------------------------------------------------------
+
+def build_v23_snapshot(
+    m5_df,
+    m15_df,
+    live_price,
+):
+    """
+    Single function used by the future dashboard to obtain
+    the complete V2.3 market map.
+
+    No trading decision is made here.
+    """
+    market_map = build_v23_market_map(
+        m5_df,
+        m15_df,
+    )
+
+    price_context = build_price_context(
+        live_price,
+        market_map,
+    )
+
+    m5_levels = (
+        market_map
+        .get("m5", {})
+        .get("liquidity", {})
+        .get("levels", [])
+    )
+
+    m15_levels = (
+        market_map
+        .get("m15", {})
+        .get("liquidity", {})
+        .get("levels", [])
+    )
+
+    m5_distance = build_liquidity_distance_summary(
+        live_price,
+        m5_levels,
+    )
+
+    m15_distance = build_liquidity_distance_summary(
+        live_price,
+        m15_levels,
+    )
+
+    return {
+        "status": market_map.get(
+            "status",
+            "UNKNOWN",
+        ),
+
+        "market_map": market_map,
+
+        "price_context": price_context,
+
+        "m5_distance": m5_distance,
+
+        "m15_distance": m15_distance,
+
+        "live_price": live_price,
+}
