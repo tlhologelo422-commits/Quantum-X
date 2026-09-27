@@ -7264,3 +7264,236 @@ def render_v24_nearest_zones(
         use_container_width=True,
         hide_index=True,
 )
+# ============================================================
+# QUANTUM X V2.4 — ORDER BLOCKS + FAIR VALUE GAPS
+# HALF 3 — PART 3B
+# ============================================================
+
+
+# ------------------------------------------------------------
+# V2.4 COMPLETE DASHBOARD
+# ------------------------------------------------------------
+
+def render_v24_dashboard(
+    snapshot,
+):
+    """
+    Render the complete V2.4 Order Block + FVG dashboard.
+    """
+
+    if not snapshot:
+        return
+
+    market_map = snapshot.get(
+        "market_map",
+        {},
+    )
+
+    m5 = market_map.get(
+        "m5",
+        {},
+    )
+
+    m15 = market_map.get(
+        "m15",
+        {},
+    )
+
+    current_price = snapshot.get(
+        "current_price"
+    )
+
+    st.markdown(
+        "## 🧱 Quantum X V2.4 — Order Blocks + FVG"
+    )
+
+    st.caption(
+        "V2.4 analysis layer: Order Blocks, Fair Value Gaps "
+        "and multi-timeframe zone context."
+    )
+
+    # --------------------------------------------------------
+    # CURRENT PRICE
+    # --------------------------------------------------------
+
+    st.metric(
+        "IG XAU/USD Price",
+        format_v24_price(
+            current_price
+        ),
+    )
+
+    # --------------------------------------------------------
+    # CONFLUENCE
+    # --------------------------------------------------------
+
+    render_v24_confluence(
+        snapshot
+    )
+
+    render_v24_directional_context(
+        snapshot
+    )
+
+    render_v24_nearest_zones(
+        snapshot
+    )
+
+    # --------------------------------------------------------
+    # M5 ZONES
+    # --------------------------------------------------------
+
+    st.markdown(
+        "## 🕐 M5 Zones"
+    )
+
+    render_v24_order_block_table(
+        m5.get(
+            "order_blocks",
+            [],
+        ),
+        "M5 Order Blocks",
+    )
+
+    render_v24_fvg_table(
+        m5.get(
+            "fvgs",
+            [],
+        ),
+        "M5 Fair Value Gaps",
+    )
+
+    # --------------------------------------------------------
+    # M15 ZONES
+    # --------------------------------------------------------
+
+    st.markdown(
+        "## 🕒 M15 Zones"
+    )
+
+    render_v24_order_block_table(
+        m15.get(
+            "order_blocks",
+            [],
+        ),
+        "M15 Order Blocks",
+    )
+
+    render_v24_fvg_table(
+        m15.get(
+            "fvgs",
+            [],
+        ),
+        "M15 Fair Value Gaps",
+    )
+
+    # --------------------------------------------------------
+    # VOLATILITY
+    # --------------------------------------------------------
+
+    st.markdown(
+        "### 📏 V2.4 Volatility"
+    )
+
+    col1, col2 = st.columns(
+        2
+    )
+
+    with col1:
+
+        st.metric(
+            "M5 ATR",
+            format_v24_distance(
+                m5.get(
+                    "atr"
+                )
+            ),
+        )
+
+    with col2:
+
+        st.metric(
+            "M15 ATR",
+            format_v24_distance(
+                m15.get(
+                    "atr"
+                )
+            ),
+        )
+
+    st.caption(
+        "V2.4 does not place trades. "
+        "Zones are currently analytical context only."
+    )
+
+
+# ============================================================
+# V2.4 LIVE ENGINE INTEGRATION
+# ============================================================
+
+def render_v24_live_layer():
+    """
+    Build and render the V2.4 layer from the current
+    live M5/M15 data.
+    """
+
+    if (
+        "m5_bars"
+        not in st.session_state
+    ):
+        return
+
+    if (
+        "m15_bars"
+        not in st.session_state
+    ):
+        return
+
+    if (
+        "live_mid"
+        not in st.session_state
+    ):
+        return
+
+    m5_df = st.session_state[
+        "m5_bars"
+    ]
+
+    m15_df = st.session_state[
+        "m15_bars"
+    ]
+
+    current_price = (
+        st.session_state[
+            "live_mid"
+        ]
+    )
+
+    if (
+        m5_df is None
+        or m15_df is None
+    ):
+        return
+
+    if (
+        m5_df.empty
+        or m15_df.empty
+    ):
+        return
+
+    snapshot = build_v24_snapshot(
+        m5_df,
+        m15_df,
+        current_price,
+    )
+
+    render_v24_dashboard(
+        snapshot
+    )
+
+
+# ============================================================
+# V2.4 INTEGRATION MARKER
+# ============================================================
+
+V24_READY = True
