@@ -6237,3 +6237,521 @@ def build_v24_timeframe_map(
             )
         ),
 }
+# ============================================================
+# QUANTUM X V2.4 — ORDER BLOCKS + FAIR VALUE GAPS
+# HALF 2 — PART 2B
+# ============================================================
+
+
+# ------------------------------------------------------------
+# V2.4 M5 + M15 ZONE ENGINE
+# ------------------------------------------------------------
+
+def build_v24_market_map(
+    m5_df,
+    m15_df,
+    current_price,
+):
+    """
+    Build the complete V2.4 Order Block + FVG
+    context for both M5 and M15.
+    """
+
+    m5_map = build_v24_timeframe_map(
+        m5_df,
+        5,
+        current_price,
+    )
+
+    m15_map = build_v24_timeframe_map(
+        m15_df,
+        15,
+        current_price,
+    )
+
+    return {
+        "m5": m5_map,
+        "m15": m15_map,
+        "current_price": float(
+            current_price
+        ),
+    }
+
+
+# ------------------------------------------------------------
+# V2.4 ZONE CONFLUENCE
+# ------------------------------------------------------------
+
+def classify_v24_zone_confluence(
+    market_map,
+):
+    """
+    Identify whether price is interacting with
+    meaningful Order Block / FVG areas.
+
+    This is context only.
+    It does NOT create a trade signal.
+    """
+
+    if not market_map:
+        return {
+            "m5": "NONE",
+            "m15": "NONE",
+            "overall": "NONE",
+        }
+
+    m5 = market_map.get(
+        "m5",
+        {},
+    )
+
+    m15 = market_map.get(
+        "m15",
+        {},
+    )
+
+    m5_ob = m5.get(
+        "nearest_order_block"
+    )
+
+    m5_fvg = m5.get(
+        "nearest_fvg"
+    )
+
+    m15_ob = m15.get(
+        "nearest_order_block"
+    )
+
+    m15_fvg = m15.get(
+        "nearest_fvg"
+    )
+
+    def timeframe_state(
+        ob,
+        fvg,
+    ):
+
+        states = []
+
+        if ob is not None:
+
+            location = ob.get(
+                "price_location",
+                "UNKNOWN",
+            )
+
+            if location == "INSIDE":
+                states.append(
+                    "OB"
+                )
+
+        if fvg is not None:
+
+            location = fvg.get(
+                "price_location",
+                "UNKNOWN",
+            )
+
+            if location == "INSIDE":
+                states.append(
+                    "FVG"
+                )
+
+        if (
+            "OB" in states
+            and "FVG" in states
+        ):
+            return "OB + FVG"
+
+        if "OB" in states:
+            return "OB"
+
+        if "FVG" in states:
+            return "FVG"
+
+        return "NONE"
+
+    m5_state = timeframe_state(
+        m5_ob,
+        m5_fvg,
+    )
+
+    m15_state = timeframe_state(
+        m15_ob,
+        m15_fvg,
+    )
+
+    if (
+        m5_state == "OB + FVG"
+        or m15_state == "OB + FVG"
+    ):
+        overall = "STRONG ZONE CONFLUENCE"
+
+    elif (
+        m5_state != "NONE"
+        and m15_state != "NONE"
+    ):
+        overall = "MULTI-TIMEFRAME CONFLUENCE"
+
+    elif (
+        m5_state != "NONE"
+        or m15_state != "NONE"
+    ):
+        overall = "SINGLE-TIMEFRAME CONFLUENCE"
+
+    else:
+        overall = "NONE"
+
+    return {
+        "m5": m5_state,
+        "m15": m15_state,
+        "overall": overall,
+    }
+
+
+# ------------------------------------------------------------
+# V2.4 DIRECTIONAL ZONE CONTEXT
+# ------------------------------------------------------------
+
+def get_v24_zone_direction(
+    zone,
+):
+    """
+    Return the directional meaning of a zone.
+    """
+
+    if not zone:
+        return "NONE"
+
+    zone_type = zone.get(
+        "type",
+        "",
+    )
+
+    if zone_type == "BULLISH":
+        return "BULLISH"
+
+    if zone_type == "BEARISH":
+        return "BEARISH"
+
+    return "NONE"
+
+
+def build_v24_directional_context(
+    market_map,
+):
+    """
+    Summarize bullish/bearish zone pressure
+    across M5 and M15.
+    """
+
+    if not market_map:
+        return {
+            "m5": "NONE",
+            "m15": "NONE",
+            "overall": "NEUTRAL",
+        }
+
+    results = {}
+
+    for timeframe in (
+        "m5",
+        "m15",
+    ):
+
+        timeframe_map = market_map.get(
+            timeframe,
+            {},
+        )
+
+        order_blocks = (
+            timeframe_map.get(
+                "order_blocks",
+                [],
+            )
+        )
+
+        fvgs = (
+            timeframe_map.get(
+                "fvgs",
+                [],
+            )
+        )
+
+        bullish = 0
+        bearish = 0
+
+        for zone in order_blocks:
+
+            if zone.get(
+                "type"
+            ) == "BULLISH":
+                bullish += 1
+
+            elif zone.get(
+                "type"
+            ) == "BEARISH":
+                bearish += 1
+
+        for zone in fvgs:
+
+            if not zone.get(
+                "active",
+                True,
+            ):
+                continue
+
+            if zone.get(
+                "type"
+            ) == "BULLISH":
+                bullish += 1
+
+            elif zone.get(
+                "type"
+            ) == "BEARISH":
+                bearish += 1
+
+        if (
+            bullish > bearish
+        ):
+            state = "BULLISH"
+
+        elif (
+            bearish > bullish
+        ):
+            state = "BEARISH"
+
+        else:
+            state = "NEUTRAL"
+
+        results[timeframe] = state
+
+    if (
+        results["m5"]
+        == results["m15"]
+        and results["m5"]
+        in (
+            "BULLISH",
+            "BEARISH",
+        )
+    ):
+        overall = results[
+            "m5"
+        ]
+
+    elif (
+        results["m15"]
+        in (
+            "BULLISH",
+            "BEARISH",
+        )
+    ):
+        overall = (
+            "M15 "
+            + results["m15"]
+        )
+
+    else:
+        overall = "NEUTRAL"
+
+    results[
+        "overall"
+    ] = overall
+
+    return results
+
+
+# ------------------------------------------------------------
+# V2.4 COMPLETE SNAPSHOT
+# ------------------------------------------------------------
+
+def build_v24_snapshot(
+    m5_df,
+    m15_df,
+    current_price,
+):
+    """
+    Build the complete V2.4 analysis snapshot.
+
+    V2.3 liquidity/S&R remains separate and is
+    intentionally not modified here.
+    """
+
+    market_map = (
+        build_v24_market_map(
+            m5_df,
+            m15_df,
+            current_price,
+        )
+    )
+
+    confluence = (
+        classify_v24_zone_confluence(
+            market_map
+        )
+    )
+
+    directional = (
+        build_v24_directional_context(
+            market_map
+        )
+    )
+
+    return {
+        "current_price": float(
+            current_price
+        ),
+        "market_map": market_map,
+        "confluence": confluence,
+        "directional": directional,
+    }
+
+
+# ------------------------------------------------------------
+# V2.4 SUMMARY HELPERS
+# ------------------------------------------------------------
+
+def format_v24_zone(
+    zone,
+):
+    """
+    Convert a zone dictionary into a compact
+    display-ready structure.
+    """
+
+    if not zone:
+        return None
+
+    return {
+        "type": zone.get(
+            "type",
+            "UNKNOWN",
+        ),
+        "time": zone.get(
+            "time"
+        ),
+        "lower": float(
+            zone.get(
+                "lower",
+                0.0,
+            )
+        ),
+        "upper": float(
+            zone.get(
+                "upper",
+                0.0,
+            )
+        ),
+        "distance": float(
+            zone.get(
+                "distance",
+                0.0,
+            )
+        ),
+        "location": zone.get(
+            "price_location",
+            "UNKNOWN",
+        ),
+        "active": zone.get(
+            "active",
+            True,
+        ),
+    }
+
+
+def get_v24_summary(
+    snapshot,
+):
+    """
+    Return a compact summary for the UI layer.
+    """
+
+    if not snapshot:
+        return {
+            "price": None,
+            "m5_confluence": "NONE",
+            "m15_confluence": "NONE",
+            "overall_confluence": "NONE",
+            "m5_direction": "NEUTRAL",
+            "m15_direction": "NEUTRAL",
+            "overall_direction": "NEUTRAL",
+            "nearest_m5_ob": None,
+            "nearest_m5_fvg": None,
+            "nearest_m15_ob": None,
+            "nearest_m15_fvg": None,
+        }
+
+    market_map = snapshot.get(
+        "market_map",
+        {},
+    )
+
+    confluence = snapshot.get(
+        "confluence",
+        {},
+    )
+
+    directional = snapshot.get(
+        "directional",
+        {},
+    )
+
+    m5 = market_map.get(
+        "m5",
+        {},
+    )
+
+    m15 = market_map.get(
+        "m15",
+        {},
+    )
+
+    return {
+        "price": snapshot.get(
+            "current_price"
+        ),
+        "m5_confluence": confluence.get(
+            "m5",
+            "NONE",
+        ),
+        "m15_confluence": confluence.get(
+            "m15",
+            "NONE",
+        ),
+        "overall_confluence": confluence.get(
+            "overall",
+            "NONE",
+        ),
+        "m5_direction": directional.get(
+            "m5",
+            "NEUTRAL",
+        ),
+        "m15_direction": directional.get(
+            "m15",
+            "NEUTRAL",
+        ),
+        "overall_direction": directional.get(
+            "overall",
+            "NEUTRAL",
+        ),
+        "nearest_m5_ob": format_v24_zone(
+            m5.get(
+                "nearest_order_block"
+            )
+        ),
+        "nearest_m5_fvg": format_v24_zone(
+            m5.get(
+                "nearest_fvg"
+            )
+        ),
+        "nearest_m15_ob": format_v24_zone(
+            m15.get(
+                "nearest_order_block"
+            )
+        ),
+        "nearest_m15_fvg": format_v24_zone(
+            m15.get(
+                "nearest_fvg"
+            )
+        ),
+}
