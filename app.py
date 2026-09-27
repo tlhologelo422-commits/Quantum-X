@@ -2568,7 +2568,57 @@ if (
     ]
 ):
 
-    
+      @st.fragment(
+        run_every=POLL_SECONDS
+    )
+    def live_engine_fragment():
+
+        try:
+
+            live_data_tick()
+
+        except Exception as exc:
+
+            st.session_state[
+                "last_error"
+            ] = str(exc)
+
+        st.subheader(
+            "📊 Live Status"
+        )
+
+        render_status_cards()
+
+        if st.session_state[
+            "last_error"
+        ]:
+
+            st.error(
+                st.session_state[
+                    "last_error"
+                ]
+            )
+
+        render_data_details()
+
+        render_structure_dashboard()
+
+        # V2.3 — Liquidity + upgraded S/R
+        # The globals check keeps the first page load safe
+        # because V2.3 functions are defined later in the file.
+        if (
+            "render_v23_liquidity_dashboard"
+            in globals()
+        ):
+
+            render_v23_liquidity_dashboard()
+
+        render_live_candle_tables()
+
+        st.caption(
+            f"Live engine refresh: "
+            f"every {POLL_SECONDS} seconds"
+)  
 
     live_engine_fragment()
 
