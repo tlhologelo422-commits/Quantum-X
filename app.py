@@ -2568,7 +2568,7 @@ if (
     ]
 ):
 
-      @st.fragment(
+          @st.fragment(
         run_every=POLL_SECONDS
     )
     def live_engine_fragment():
@@ -2604,8 +2604,6 @@ if (
         render_structure_dashboard()
 
         # V2.3 — Liquidity + upgraded S/R
-        # The globals check keeps the first page load safe
-        # because V2.3 functions are defined later in the file.
         if (
             "render_v23_liquidity_dashboard"
             in globals()
@@ -2618,7 +2616,7 @@ if (
         st.caption(
             f"Live engine refresh: "
             f"every {POLL_SECONDS} seconds"
-)  
+        )
 
     live_engine_fragment()
 
