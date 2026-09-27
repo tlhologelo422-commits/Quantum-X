@@ -2567,18 +2567,13 @@ if (
         "bootstrap_complete"
     ]
 ):
-
-          @st.fragment(
+    @st.fragment(
         run_every=POLL_SECONDS
     )
     def live_engine_fragment():
-
         try:
-
             live_data_tick()
-
         except Exception as exc:
-
             st.session_state[
                 "last_error"
             ] = str(exc)
@@ -2592,7 +2587,6 @@ if (
         if st.session_state[
             "last_error"
         ]:
-
             st.error(
                 st.session_state[
                     "last_error"
@@ -2600,7 +2594,6 @@ if (
             )
 
         render_data_details()
-
         render_structure_dashboard()
 
         # V2.3 — Liquidity + upgraded S/R
@@ -2608,7 +2601,6 @@ if (
             "render_v23_liquidity_dashboard"
             in globals()
         ):
-
             render_v23_liquidity_dashboard()
 
         render_live_candle_tables()
@@ -2619,9 +2611,6 @@ if (
         )
 
     live_engine_fragment()
-
-else:
-
     st.subheader(
         "📡 Waiting for Data Engine"
     )
