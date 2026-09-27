@@ -4974,3 +4974,304 @@ def render_v23_confluence_summary(
         "V2.3 confluence summary is informational only. "
         "No trading decision is generated."
         )
+# ============================================================
+# QUANTUM X V2.4 — ORDER BLOCKS + FAIR VALUE GAPS
+# HALF 1 — PART 1A
+# ============================================================
+
+# ------------------------------------------------------------
+# V2.4 CONFIGURATION
+# ------------------------------------------------------------
+
+V24_OB_ATR_MIN = 0.20
+V24_OB_ATR_MAX = 2.50
+
+V24_FVG_ATR_MIN = 0.10
+V24_FVG_MAX_AGE = 120
+
+V24_DISPLACEMENT_ATR = 1.00
+
+V24_MAX_ORDER_BLOCKS = 10
+V24_MAX_FVGS = 12
+
+
+# ------------------------------------------------------------
+# V2.4 CANDLE HELPERS
+# ------------------------------------------------------------
+
+def get_v24_completed_candles(
+    df,
+    timeframe_minutes,
+):
+    """
+    Return completed candles only.
+
+    The currently forming candle is excluded.
+    """
+
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    data = df.copy()
+
+    if "time" not in data.columns:
+        return pd.DataFrame()
+
+    data["time"] = pd.to_datetime(
+        data["time"],
+        utc=True,
+        errors="coerce",
+    )
+
+    data = data.dropna(
+        subset=["time"]
+    ).copy()
+
+    if data.empty:
+        return data
+
+    now_utc = pd.Timestamp.now(
+        tz="UTC"
+    )
+
+    current_bucket = (
+        now_utc.floor(
+            f"{timeframe_minutes}min"
+        )
+    )
+
+    data = data[
+        data["time"] < current_bucket
+    ].copy()
+
+    return data.reset_index(
+        drop=True
+    )
+
+
+def calculate_v24_atr(
+    df,
+    period=14,
+):
+    """
+    Calculate ATR-style volatility measurement.
+    """
+
+    if df is None or df.empty:
+        return None
+
+    required = {
+        "high",
+        "low",
+        "close",
+    }
+
+    if not required.issubset(
+        set(df.columns)
+    ):
+        return None
+
+    data = df.copy()
+
+    previous_close = (
+        data["close"].shift(1)
+    )
+
+    true_range = pd.concat(
+        [
+            data["high"] - data["low"],
+            (
+                data["high"]
+                - previous_close
+            ).abs(),
+            (
+                data["low"]
+                - previous_close
+            ).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
+
+    atr = (
+        true_range
+        .rolling(
+            period,
+            min_periods=period,
+        )
+        .mean()
+    )
+
+    if atr.empty:
+        return None
+
+    value = atr.iloc[-1]
+
+    if pd.isna(value):
+        return None
+
+    return float(value)
+
+
+def get_v24_candle_body(
+    candle,
+):
+    return abs(
+        float(candle["close"])
+        - float(candle["open"])
+    )
+
+
+def get_v24_candle_range(
+    candle,
+):
+    return (
+        float(candle["high"])
+        - float(candle["low"])
+    )
+
+
+def get_v24_body_ratio(
+    candle,
+):
+    candle_range = (
+        get_v24_candle_range(
+            candle
+        )
+    )
+
+    if candle_range <= 0:
+        return 0.0
+
+    return (
+        get_v24_candle_body(
+            candle
+        )
+        / candle_range
+    )
+
+
+def is_v24_bullish_candle(
+    candle,
+):
+    return float(
+        candle["close"]
+    ) > float(
+        candle["open"]
+    )
+
+
+def is_v24_bearish_candle(
+    candle,
+):
+    return float(
+        candle["close"]
+    ) < float(
+        candle["open"]
+    )
+
+
+# ------------------------------------------------------------
+# V2.4 DISPLACEMENT DETECTION
+# ------------------------------------------------------------
+
+def detect_v24_displacement(
+    df,
+    atr_value,
+    index,
+):
+    """
+    Detect a strong directional candle.
+
+    Displacement is used as confirmation that price
+    moved away from an Order Block with meaningful force.
+    """
+
+    if (
+        df is None
+        or df.empty
+        or atr_value is None
+        or atr_value <= 0
+    ):
+        return None
+
+    if index < 0 or index >= len(df):
+        return None
+
+    candle = df.iloc[index]
+
+    candle_range = (
+        get_v24_candle_range(
+            candle
+        )
+    )
+
+    body = (
+        get_v24_candle_body(
+            candle
+        )
+    )
+
+    if candle_range <= 0:
+        return None
+
+    if candle_range < (
+        atr_value
+        * V24_DISPLACEMENT_ATR
+    ):
+        return None
+
+    body_ratio = (
+        body
+        / candle_range
+    )
+
+    if body_ratio < 0.60:
+        return None
+
+    if is_v24_bullish_candle(
+        candle
+    ):
+        return {
+            "direction": "BULLISH",
+            "time": candle["time"],
+            "open": float(
+                candle["open"]
+            ),
+            "high": float(
+                candle["high"]
+            ),
+            "low": float(
+                candle["low"]
+            ),
+            "close": float(
+                candle["close"]
+            ),
+            "range": candle_range,
+            "body": body,
+            "body_ratio": body_ratio,
+        }
+
+    if is_v24_bearish_candle(
+        candle
+    ):
+        return {
+            "direction": "BEARISH",
+            "time": candle["time"],
+            "open": float(
+                candle["open"]
+            ),
+            "high": float(
+                candle["high"]
+            ),
+            "low": float(
+                candle["low"]
+            ),
+            "close": float(
+                candle["close"]
+            ),
+            "range": candle_range,
+            "body": body,
+            "body_ratio": body_ratio,
+        }
+
+    return None
