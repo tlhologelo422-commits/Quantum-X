@@ -5739,3 +5739,501 @@ def detect_v24_fvgs(
     return fvgs[
         :V24_MAX_FVGS
             ]
+# ============================================================
+# QUANTUM X V2.4 — ORDER BLOCKS + FAIR VALUE GAPS
+# HALF 2 — PART 2A
+# ============================================================
+
+
+# ------------------------------------------------------------
+# V2.4 FVG STATUS
+# ------------------------------------------------------------
+
+def update_v24_fvg_status(
+    fvgs,
+    current_price,
+):
+    """
+    Update Fair Value Gap status based on current price.
+
+    A gap is considered filled when price reaches
+    the opposite boundary of the gap.
+    """
+
+    if not fvgs:
+        return []
+
+    updated = []
+
+    for gap in fvgs:
+
+        item = dict(
+            gap
+        )
+
+        upper = float(
+            gap["upper"]
+        )
+
+        lower = float(
+            gap["lower"]
+        )
+
+        gap_type = gap[
+            "type"
+        ]
+
+        if gap_type == "BULLISH":
+
+            if current_price <= lower:
+                item[
+                    "price_location"
+                ] = "BELOW"
+
+            elif (
+                lower
+                < current_price
+                < upper
+            ):
+                item[
+                    "price_location"
+                ] = "INSIDE"
+
+            else:
+                item[
+                    "price_location"
+                ] = "ABOVE"
+
+            if current_price <= lower:
+                item[
+                    "filled"
+                ] = True
+                item[
+                    "active"
+                ] = False
+
+        elif gap_type == "BEARISH":
+
+            if current_price >= upper:
+                item[
+                    "price_location"
+                ] = "ABOVE"
+
+            elif (
+                lower
+                < current_price
+                < upper
+            ):
+                item[
+                    "price_location"
+                ] = "INSIDE"
+
+            else:
+                item[
+                    "price_location"
+                ] = "BELOW"
+
+            if current_price >= upper:
+                item[
+                    "filled"
+                ] = True
+                item[
+                    "active"
+                ] = False
+
+        updated.append(
+            item
+        )
+
+    return updated
+
+
+# ------------------------------------------------------------
+# V2.4 ORDER BLOCK + FVG DISTANCE
+# ------------------------------------------------------------
+
+def calculate_v24_zone_distance(
+    current_price,
+    lower,
+    upper,
+):
+    """
+    Calculate distance from current price to a zone.
+
+    Returns:
+        0 when price is inside the zone.
+        Positive distance otherwise.
+    """
+
+    current_price = float(
+        current_price
+    )
+
+    lower = float(
+        lower
+    )
+
+    upper = float(
+        upper
+    )
+
+    if (
+        lower
+        <= current_price
+        <= upper
+    ):
+        return 0.0
+
+    if current_price < lower:
+        return (
+            lower
+            - current_price
+        )
+
+    return (
+        current_price
+        - upper
+    )
+
+
+def add_v24_zone_distance(
+    zones,
+    current_price,
+):
+    """
+    Add distance and price-location information
+    to Order Blocks or FVG zones.
+    """
+
+    if not zones:
+        return []
+
+    updated = []
+
+    for zone in zones:
+
+        item = dict(
+            zone
+        )
+
+        lower = float(
+            zone["lower"]
+        )
+
+        upper = float(
+            zone["upper"]
+        )
+
+        distance = (
+            calculate_v24_zone_distance(
+                current_price,
+                lower,
+                upper,
+            )
+        )
+
+        item[
+            "distance"
+        ] = float(
+            distance
+        )
+
+        if (
+            lower
+            <= current_price
+            <= upper
+        ):
+            item[
+                "price_location"
+            ] = "INSIDE"
+
+        elif current_price > upper:
+            item[
+                "price_location"
+            ] = "ABOVE"
+
+        else:
+            item[
+                "price_location"
+            ] = "BELOW"
+
+        updated.append(
+            item
+        )
+
+    return updated
+
+
+# ------------------------------------------------------------
+# V2.4 ACTIVE ZONE FILTER
+# ------------------------------------------------------------
+
+def filter_v24_active_fvgs(
+    fvgs,
+):
+    """
+    Keep only active, unfilled FVGs.
+    """
+
+    if not fvgs:
+        return []
+
+    active = []
+
+    for gap in fvgs:
+
+        if not gap.get(
+            "active",
+            True,
+        ):
+            continue
+
+        if gap.get(
+            "filled",
+            False,
+        ):
+            continue
+
+        active.append(
+            gap
+        )
+
+    return active
+
+
+def filter_v24_relevant_order_blocks(
+    order_blocks,
+):
+    """
+    Keep valid active Order Blocks.
+    """
+
+    if not order_blocks:
+        return []
+
+    active = []
+
+    for block in order_blocks:
+
+        if not block.get(
+            "active",
+            True,
+        ):
+            continue
+
+        high = float(
+            block["high"]
+        )
+
+        low = float(
+            block["low"]
+        )
+
+        if high <= low:
+            continue
+
+        active.append(
+            block
+        )
+
+    return active
+
+
+# ------------------------------------------------------------
+# V2.4 NEAREST ZONE HELPERS
+# ------------------------------------------------------------
+
+def find_v24_nearest_zone(
+    zones,
+    current_price,
+):
+    """
+    Find the nearest zone to current price.
+    """
+
+    if not zones:
+        return None
+
+    enriched = (
+        add_v24_zone_distance(
+            zones,
+            current_price,
+        )
+    )
+
+    if not enriched:
+        return None
+
+    enriched = sorted(
+        enriched,
+        key=lambda item: (
+            item.get(
+                "distance",
+                float("inf"),
+            )
+        ),
+    )
+
+    return enriched[0]
+
+
+def get_v24_nearest_order_block(
+    order_blocks,
+    current_price,
+):
+    """
+    Return nearest active Order Block.
+    """
+
+    active = (
+        filter_v24_relevant_order_blocks(
+            order_blocks
+        )
+    )
+
+    return find_v24_nearest_zone(
+        [
+            {
+                **block,
+                "lower": block[
+                    "low"
+                ],
+                "upper": block[
+                    "high"
+                ],
+            }
+            for block in active
+        ],
+        current_price,
+    )
+
+
+def get_v24_nearest_fvg(
+    fvgs,
+    current_price,
+):
+    """
+    Return nearest active Fair Value Gap.
+    """
+
+    active = (
+        filter_v24_active_fvgs(
+            fvgs
+        )
+    )
+
+    return find_v24_nearest_zone(
+        active,
+        current_price,
+    )
+
+
+# ------------------------------------------------------------
+# V2.4 TIMEFRAME ZONE MAP
+# ------------------------------------------------------------
+
+def build_v24_timeframe_map(
+    df,
+    timeframe_minutes,
+    current_price,
+):
+    """
+    Build complete Order Block + FVG map
+    for one timeframe.
+    """
+
+    completed = (
+        get_v24_completed_candles(
+            df,
+            timeframe_minutes,
+        )
+    )
+
+    if completed.empty:
+        return {
+            "timeframe": (
+                timeframe_minutes
+            ),
+            "atr": None,
+            "order_blocks": [],
+            "fvgs": [],
+            "nearest_order_block": None,
+            "nearest_fvg": None,
+        }
+
+    atr_value = (
+        calculate_v24_atr(
+            completed
+        )
+    )
+
+    order_blocks = (
+        detect_v24_order_blocks(
+            completed,
+            timeframe_minutes,
+        )
+    )
+
+    fvgs = (
+        detect_v24_fvgs(
+            completed,
+            timeframe_minutes,
+        )
+    )
+
+    order_blocks = (
+        add_v24_zone_distance(
+            [
+                {
+                    **block,
+                    "lower": block[
+                        "low"
+                    ],
+                    "upper": block[
+                        "high"
+                    ],
+                }
+                for block in order_blocks
+            ],
+            current_price,
+        )
+    )
+
+    fvgs = (
+        update_v24_fvg_status(
+            fvgs,
+            current_price,
+        )
+    )
+
+    fvgs = (
+        add_v24_zone_distance(
+            fvgs,
+            current_price,
+        )
+    )
+
+    return {
+        "timeframe": (
+            timeframe_minutes
+        ),
+        "atr": atr_value,
+        "order_blocks": (
+            order_blocks
+        ),
+        "fvgs": fvgs,
+        "nearest_order_block": (
+            find_v24_nearest_zone(
+                order_blocks,
+                current_price,
+            )
+        ),
+        "nearest_fvg": (
+            find_v24_nearest_zone(
+                filter_v24_active_fvgs(
+                    fvgs
+                ),
+                current_price,
+            )
+        ),
+}
