@@ -2598,10 +2598,15 @@ if (
 
         # V2.3 — Liquidity + upgraded S/R
         if (
-            "render_v23_liquidity_dashboard"
-            in globals()
+            "render_v23_liquidity_dashboard" in globals()
+            and "build_v23_snapshot" in globals()
         ):
-            render_v23_liquidity_dashboard()
+            v23_snapshot = build_v23_snapshot(
+                st.session_state["m5_bars"],
+                st.session_state["m15_bars"],
+                st.session_state["live_mid"],
+            )
+            render_v23_liquidity_dashboard(v23_snapshot)
 
         render_live_candle_tables()
 
