@@ -2607,7 +2607,7 @@ if (
                 st.session_state["live_mid"],
             )
             render_v23_liquidity_dashboard(v23_snapshot)
-render_v23_confluence_summary(v23_snapshot)
+            render_v23_confluence_summary(v23_snapshot)
         render_live_candle_tables()
 
         st.caption(
