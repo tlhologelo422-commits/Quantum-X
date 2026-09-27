@@ -4686,3 +4686,291 @@ def render_v23_liquidity_dashboard(
         ),
         "M15 Resistance Zones",
     )
+# ============================================================
+# QUANTUM X V2.3 — LIQUIDITY + UPGRADED S/R
+# HALF 3 — PART 3B
+# ============================================================
+
+# ------------------------------------------------------------
+# V2.3 CONFLUENCE SUMMARY
+# ------------------------------------------------------------
+
+def build_v23_confluence_summary(
+    snapshot,
+):
+    """
+    Build a compact summary of the existing V2.3
+    liquidity and S/R information.
+
+    This is analysis only.
+    It does NOT create a trading signal.
+    """
+
+    if not snapshot:
+        return {
+            "status": "NO SNAPSHOT",
+        }
+
+    market_map = snapshot.get(
+        "market_map",
+        {},
+    )
+
+    m5_map = market_map.get(
+        "m5",
+        {},
+    )
+
+    m15_map = market_map.get(
+        "m15",
+        {},
+    )
+
+    m5_liquidity = m5_map.get(
+        "liquidity",
+        {},
+    )
+
+    m15_liquidity = m15_map.get(
+        "liquidity",
+        {},
+    )
+
+    m5_sr = m5_map.get(
+        "sr",
+        {},
+    )
+
+    m15_sr = m15_map.get(
+        "sr",
+        {},
+    )
+
+    m5_levels = m5_liquidity.get(
+        "levels",
+        [],
+    )
+
+    m15_levels = m15_liquidity.get(
+        "levels",
+        [],
+    )
+
+    m5_support = m5_sr.get(
+        "support",
+        [],
+    )
+
+    m5_resistance = m5_sr.get(
+        "resistance",
+        [],
+    )
+
+    m15_support = m15_sr.get(
+        "support",
+        [],
+    )
+
+    m15_resistance = m15_sr.get(
+        "resistance",
+        [],
+    )
+
+    price_context = snapshot.get(
+        "price_context",
+        {},
+    )
+
+    m5_context = price_context.get(
+        "m5",
+        {},
+    )
+
+    m15_context = price_context.get(
+        "m15",
+        {},
+    )
+
+    m5_location = m5_context.get(
+        "location",
+        {},
+    )
+
+    m15_location = m15_context.get(
+        "location",
+        {},
+    )
+
+    return {
+        "status": snapshot.get(
+            "status",
+            "UNKNOWN",
+        ),
+
+        "live_price": snapshot.get(
+            "live_price",
+        ),
+
+        "m5": {
+            "liquidity_count": len(
+                m5_levels
+            ),
+            "support_count": len(
+                m5_support
+            ),
+            "resistance_count": len(
+                m5_resistance
+            ),
+            "location": m5_location.get(
+                "location",
+                "UNKNOWN",
+            ),
+            "nearest_sr": m5_location.get(
+                "level",
+            ),
+            "nearest_liquidity_above": (
+                snapshot
+                .get("m5_distance", {})
+                .get("above_price")
+            ),
+            "nearest_liquidity_below": (
+                snapshot
+                .get("m5_distance", {})
+                .get("below_price")
+            ),
+        },
+
+        "m15": {
+            "liquidity_count": len(
+                m15_levels
+            ),
+            "support_count": len(
+                m15_support
+            ),
+            "resistance_count": len(
+                m15_resistance
+            ),
+            "location": m15_location.get(
+                "location",
+                "UNKNOWN",
+            ),
+            "nearest_sr": m15_location.get(
+                "level",
+            ),
+            "nearest_liquidity_above": (
+                snapshot
+                .get("m15_distance", {})
+                .get("above_price")
+            ),
+            "nearest_liquidity_below": (
+                snapshot
+                .get("m15_distance", {})
+                .get("below_price")
+            ),
+        },
+    }
+
+
+# ------------------------------------------------------------
+# V2.3 CONFLUENCE DISPLAY
+# ------------------------------------------------------------
+
+def render_v23_confluence_summary(
+    snapshot,
+):
+    """
+    Display the existing V2.3 market-map information
+    in a compact summary.
+
+    Analysis only — no trading decision.
+    """
+
+    summary = build_v23_confluence_summary(
+        snapshot
+    )
+
+    if summary.get("status") == "NO SNAPSHOT":
+        return
+
+    st.markdown(
+        "### 🧩 V2.3 Confluence Summary"
+    )
+
+    m5 = summary.get(
+        "m5",
+        {},
+    )
+
+    m15 = summary.get(
+        "m15",
+        {},
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        st.markdown(
+            "#### M5 Execution Context"
+        )
+
+        st.write(
+            f"**S/R Location:** "
+            f"{m5.get('location', 'UNKNOWN')}"
+        )
+
+        st.write(
+            f"**Nearest S/R:** "
+            f"{format_price_value(m5.get('nearest_sr'))}"
+        )
+
+        st.write(
+            f"**Liquidity Levels:** "
+            f"{m5.get('liquidity_count', 0)}"
+        )
+
+        st.write(
+            f"**Support Zones:** "
+            f"{m5.get('support_count', 0)}"
+        )
+
+        st.write(
+            f"**Resistance Zones:** "
+            f"{m5.get('resistance_count', 0)}"
+        )
+
+    with col2:
+
+        st.markdown(
+            "#### M15 Higher-Timeframe Context"
+        )
+
+        st.write(
+            f"**S/R Location:** "
+            f"{m15.get('location', 'UNKNOWN')}"
+        )
+
+        st.write(
+            f"**Nearest S/R:** "
+            f"{format_price_value(m15.get('nearest_sr'))}"
+        )
+
+        st.write(
+            f"**Liquidity Levels:** "
+            f"{m15.get('liquidity_count', 0)}"
+        )
+
+        st.write(
+            f"**Support Zones:** "
+            f"{m15.get('support_count', 0)}"
+        )
+
+        st.write(
+            f"**Resistance Zones:** "
+            f"{m15.get('resistance_count', 0)}"
+        )
+
+    st.caption(
+        "V2.3 confluence summary is informational only. "
+        "No trading decision is generated."
+        )
