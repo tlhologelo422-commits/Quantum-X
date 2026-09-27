@@ -6755,3 +6755,512 @@ def get_v24_summary(
             )
         ),
 }
+# ============================================================
+# QUANTUM X V2.4 — ORDER BLOCKS + FAIR VALUE GAPS
+# HALF 3 — PART 3A
+# ============================================================
+
+
+# ------------------------------------------------------------
+# V2.4 DISPLAY HELPERS
+# ------------------------------------------------------------
+
+def format_v24_price(
+    value,
+):
+    """
+    Format a price safely for display.
+    """
+
+    if value is None:
+        return "—"
+
+    try:
+        return f"{float(value):,.2f}"
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return "—"
+
+
+def format_v24_distance(
+    value,
+):
+    """
+    Format zone distance safely.
+    """
+
+    if value is None:
+        return "—"
+
+    try:
+        return f"{float(value):,.2f}"
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return "—"
+
+
+def v24_zone_type_label(
+    zone_type,
+):
+    """
+    Human-readable zone label.
+    """
+
+    if zone_type == "BULLISH":
+        return "🟢 Bullish"
+
+    if zone_type == "BEARISH":
+        return "🔴 Bearish"
+
+    return "⚪ Neutral"
+
+
+def v24_location_label(
+    location,
+):
+    """
+    Human-readable price location.
+    """
+
+    if location == "INSIDE":
+        return "📍 Inside"
+
+    if location == "ABOVE":
+        return "⬆️ Above"
+
+    if location == "BELOW":
+        return "⬇️ Below"
+
+    return "—"
+
+
+# ------------------------------------------------------------
+# V2.4 ORDER BLOCK TABLE
+# ------------------------------------------------------------
+
+def render_v24_order_block_table(
+    order_blocks,
+    title,
+):
+    """
+    Render Order Blocks for one timeframe.
+    """
+
+    st.markdown(
+        f"#### {title}"
+    )
+
+    if not order_blocks:
+
+        st.info(
+            "No valid Order Blocks detected."
+        )
+
+        return
+
+    rows = []
+
+    for block in order_blocks:
+
+        rows.append(
+            {
+                "Type": (
+                    v24_zone_type_label(
+                        block.get(
+                            "type"
+                        )
+                    )
+                ),
+                "Time": str(
+                    block.get(
+                        "time",
+                        "—",
+                    )
+                ),
+                "Low": format_v24_price(
+                    block.get(
+                        "lower"
+                    )
+                ),
+                "High": format_v24_price(
+                    block.get(
+                        "upper"
+                    )
+                ),
+                "Distance": (
+                    format_v24_distance(
+                        block.get(
+                            "distance"
+                        )
+                    )
+                ),
+                "Price": (
+                    v24_location_label(
+                        block.get(
+                            "price_location"
+                        )
+                    )
+                ),
+                "Active": (
+                    "YES"
+                    if block.get(
+                        "active",
+                        True,
+                    )
+                    else "NO"
+                ),
+            }
+        )
+
+    st.dataframe(
+        pd.DataFrame(
+            rows
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
+# ------------------------------------------------------------
+# V2.4 FVG TABLE
+# ------------------------------------------------------------
+
+def render_v24_fvg_table(
+    fvgs,
+    title,
+):
+    """
+    Render Fair Value Gaps for one timeframe.
+    """
+
+    st.markdown(
+        f"#### {title}"
+    )
+
+    if not fvgs:
+
+        st.info(
+            "No valid Fair Value Gaps detected."
+        )
+
+        return
+
+    rows = []
+
+    for gap in fvgs:
+
+        rows.append(
+            {
+                "Type": (
+                    v24_zone_type_label(
+                        gap.get(
+                            "type"
+                        )
+                    )
+                ),
+                "Time": str(
+                    gap.get(
+                        "time",
+                        "—",
+                    )
+                ),
+                "Lower": format_v24_price(
+                    gap.get(
+                        "lower"
+                    )
+                ),
+                "Upper": format_v24_price(
+                    gap.get(
+                        "upper"
+                    )
+                ),
+                "Size": format_v24_distance(
+                    gap.get(
+                        "size"
+                    )
+                ),
+                "Distance": (
+                    format_v24_distance(
+                        gap.get(
+                            "distance"
+                        )
+                    )
+                ),
+                "Price": (
+                    v24_location_label(
+                        gap.get(
+                            "price_location"
+                        )
+                    )
+                ),
+                "Filled": (
+                    "YES"
+                    if gap.get(
+                        "filled",
+                        False,
+                    )
+                    else "NO"
+                ),
+                "Active": (
+                    "YES"
+                    if gap.get(
+                        "active",
+                        True,
+                    )
+                    else "NO"
+                ),
+            }
+        )
+
+    st.dataframe(
+        pd.DataFrame(
+            rows
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
+# ------------------------------------------------------------
+# V2.4 CONFLUENCE DISPLAY
+# ------------------------------------------------------------
+
+def render_v24_confluence(
+    snapshot,
+):
+    """
+    Render high-level V2.4 zone confluence.
+    """
+
+    if not snapshot:
+        return
+
+    summary = get_v24_summary(
+        snapshot
+    )
+
+    st.markdown(
+        "### 🧩 V2.4 Zone Confluence"
+    )
+
+    col1, col2, col3 = st.columns(
+        3
+    )
+
+    with col1:
+
+        st.metric(
+            "M5 Zone",
+            summary[
+                "m5_confluence"
+            ],
+        )
+
+    with col2:
+
+        st.metric(
+            "M15 Zone",
+            summary[
+                "m15_confluence"
+            ],
+        )
+
+    with col3:
+
+        st.metric(
+            "Overall",
+            summary[
+                "overall_confluence"
+            ],
+        )
+
+    st.caption(
+        "Order Blocks and FVGs are context only at V2.4. "
+        "No trade decision is generated here."
+    )
+
+
+# ------------------------------------------------------------
+# V2.4 DIRECTIONAL DISPLAY
+# ------------------------------------------------------------
+
+def render_v24_directional_context(
+    snapshot,
+):
+    """
+    Render directional pressure from OB/FVG zones.
+    """
+
+    if not snapshot:
+        return
+
+    summary = get_v24_summary(
+        snapshot
+    )
+
+    st.markdown(
+        "### 🧭 V2.4 Zone Direction"
+    )
+
+    col1, col2, col3 = st.columns(
+        3
+    )
+
+    with col1:
+
+        st.metric(
+            "M5",
+            summary[
+                "m5_direction"
+            ],
+        )
+
+    with col2:
+
+        st.metric(
+            "M15",
+            summary[
+                "m15_direction"
+            ],
+        )
+
+    with col3:
+
+        st.metric(
+            "Overall",
+            summary[
+                "overall_direction"
+            ],
+        )
+
+
+# ------------------------------------------------------------
+# V2.4 NEAREST ZONES
+# ------------------------------------------------------------
+
+def render_v24_nearest_zones(
+    snapshot,
+):
+    """
+    Display the nearest Order Blocks and FVGs.
+    """
+
+    if not snapshot:
+        return
+
+    summary = get_v24_summary(
+        snapshot
+    )
+
+    st.markdown(
+        "### 🎯 Nearest V2.4 Zones"
+    )
+
+    rows = []
+
+    nearest_items = [
+        (
+            "M5",
+            "Order Block",
+            summary[
+                "nearest_m5_ob"
+            ],
+        ),
+        (
+            "M5",
+            "FVG",
+            summary[
+                "nearest_m5_fvg"
+            ],
+        ),
+        (
+            "M15",
+            "Order Block",
+            summary[
+                "nearest_m15_ob"
+            ],
+        ),
+        (
+            "M15",
+            "FVG",
+            summary[
+                "nearest_m15_fvg"
+            ],
+        ),
+    ]
+
+    for timeframe, zone_name, zone in (
+        nearest_items
+    ):
+
+        if zone is None:
+
+            rows.append(
+                {
+                    "Timeframe": timeframe,
+                    "Zone": zone_name,
+                    "Type": "—",
+                    "Lower": "—",
+                    "Upper": "—",
+                    "Distance": "—",
+                    "Price": "—",
+                }
+            )
+
+            continue
+
+        rows.append(
+            {
+                "Timeframe": timeframe,
+                "Zone": zone_name,
+                "Type": (
+                    v24_zone_type_label(
+                        zone.get(
+                            "type"
+                        )
+                    )
+                ),
+                "Lower": (
+                    format_v24_price(
+                        zone.get(
+                            "lower"
+                        )
+                    )
+                ),
+                "Upper": (
+                    format_v24_price(
+                        zone.get(
+                            "upper"
+                        )
+                    )
+                ),
+                "Distance": (
+                    format_v24_distance(
+                        zone.get(
+                            "distance"
+                        )
+                    )
+                ),
+                "Price": (
+                    v24_location_label(
+                        zone.get(
+                            "location"
+                        )
+                    )
+                ),
+            }
+        )
+
+    st.dataframe(
+        pd.DataFrame(
+            rows
+        ),
+        use_container_width=True,
+        hide_index=True,
+)
