@@ -5275,3 +5275,467 @@ def detect_v24_displacement(
         }
 
     return None
+# ============================================================
+# QUANTUM X V2.4 — ORDER BLOCKS + FAIR VALUE GAPS
+# HALF 1 — PART 1B
+# ============================================================
+
+
+# ------------------------------------------------------------
+# V2.4 ORDER BLOCK DETECTION
+# ------------------------------------------------------------
+
+def detect_v24_order_blocks(
+    df,
+    timeframe_minutes,
+):
+    """
+    Detect Order Blocks from completed candles.
+
+    Bullish OB:
+        Last meaningful bearish candle before
+        bullish displacement.
+
+    Bearish OB:
+        Last meaningful bullish candle before
+        bearish displacement.
+    """
+
+    data = get_v24_completed_candles(
+        df,
+        timeframe_minutes,
+    )
+
+    if data.empty:
+        return []
+
+    atr_value = calculate_v24_atr(
+        data
+    )
+
+    if (
+        atr_value is None
+        or atr_value <= 0
+    ):
+        return []
+
+    order_blocks = []
+
+    for index in range(
+        1,
+        len(data),
+    ):
+
+        displacement = (
+            detect_v24_displacement(
+                data,
+                atr_value,
+                index,
+            )
+        )
+
+        if displacement is None:
+            continue
+
+        displacement_direction = (
+            displacement["direction"]
+        )
+
+        opposite_index = index - 1
+
+        opposite_candle = (
+            data.iloc[
+                opposite_index
+            ]
+        )
+
+        candle_range = (
+            get_v24_candle_range(
+                opposite_candle
+            )
+        )
+
+        if candle_range <= 0:
+            continue
+
+        if candle_range > (
+            atr_value
+            * V24_OB_ATR_MAX
+        ):
+            continue
+
+        if candle_range < (
+            atr_value
+            * V24_OB_ATR_MIN
+        ):
+            continue
+
+        if (
+            displacement_direction
+            == "BULLISH"
+            and is_v24_bearish_candle(
+                opposite_candle
+            )
+        ):
+
+            order_blocks.append(
+                {
+                    "type": "BULLISH",
+                    "time": opposite_candle[
+                        "time"
+                    ],
+                    "high": float(
+                        opposite_candle[
+                            "high"
+                        ]
+                    ),
+                    "low": float(
+                        opposite_candle[
+                            "low"
+                        ]
+                    ),
+                    "open": float(
+                        opposite_candle[
+                            "open"
+                        ]
+                    ),
+                    "close": float(
+                        opposite_candle[
+                            "close"
+                        ]
+                    ),
+                    "atr": float(
+                        atr_value
+                    ),
+                    "displacement_time": (
+                        displacement[
+                            "time"
+                        ]
+                    ),
+                    "displacement_range": (
+                        displacement[
+                            "range"
+                        ]
+                    ),
+                    "body_ratio": (
+                        displacement[
+                            "body_ratio"
+                        ]
+                    ),
+                    "active": True,
+                }
+            )
+
+        elif (
+            displacement_direction
+            == "BEARISH"
+            and is_v24_bullish_candle(
+                opposite_candle
+            )
+        ):
+
+            order_blocks.append(
+                {
+                    "type": "BEARISH",
+                    "time": opposite_candle[
+                        "time"
+                    ],
+                    "high": float(
+                        opposite_candle[
+                            "high"
+                        ]
+                    ),
+                    "low": float(
+                        opposite_candle[
+                            "low"
+                        ]
+                    ),
+                    "open": float(
+                        opposite_candle[
+                            "open"
+                        ]
+                    ),
+                    "close": float(
+                        opposite_candle[
+                            "close"
+                        ]
+                    ),
+                    "atr": float(
+                        atr_value
+                    ),
+                    "displacement_time": (
+                        displacement[
+                            "time"
+                        ]
+                    ),
+                    "displacement_range": (
+                        displacement[
+                            "range"
+                        ]
+                    ),
+                    "body_ratio": (
+                        displacement[
+                            "body_ratio"
+                        ]
+                    ),
+                    "active": True,
+                }
+            )
+
+    if not order_blocks:
+        return []
+
+    # Keep newest Order Blocks first.
+    order_blocks = sorted(
+        order_blocks,
+        key=lambda item: item[
+            "time"
+        ],
+        reverse=True,
+    )
+
+    return order_blocks[
+        :V24_MAX_ORDER_BLOCKS
+    ]
+
+
+# ------------------------------------------------------------
+# V2.4 ORDER BLOCK STATUS
+# ------------------------------------------------------------
+
+def update_v24_order_block_status(
+    order_blocks,
+    current_price,
+):
+    """
+    Determine whether price is currently inside,
+    above, or below each Order Block.
+    """
+
+    if not order_blocks:
+        return []
+
+    updated = []
+
+    for block in order_blocks:
+
+        low = float(
+            block["low"]
+        )
+
+        high = float(
+            block["high"]
+        )
+
+        item = dict(
+            block
+        )
+
+        if (
+            low
+            <= current_price
+            <= high
+        ):
+            item[
+                "price_location"
+            ] = "INSIDE"
+
+        elif current_price > high:
+            item[
+                "price_location"
+            ] = "ABOVE"
+
+        else:
+            item[
+                "price_location"
+            ] = "BELOW"
+
+        updated.append(
+            item
+        )
+
+    return updated
+
+
+# ------------------------------------------------------------
+# V2.4 FVG DETECTION
+# ------------------------------------------------------------
+
+def detect_v24_fvgs(
+    df,
+    timeframe_minutes,
+):
+    """
+    Detect classic three-candle Fair Value Gaps.
+
+    Bullish FVG:
+        Current candle low is above
+        candle two bars earlier high.
+
+    Bearish FVG:
+        Current candle high is below
+        candle two bars earlier low.
+    """
+
+    data = get_v24_completed_candles(
+        df,
+        timeframe_minutes,
+    )
+
+    if len(data) < 3:
+        return []
+
+    atr_value = calculate_v24_atr(
+        data
+    )
+
+    if (
+        atr_value is None
+        or atr_value <= 0
+    ):
+        return []
+
+    fvgs = []
+
+    for index in range(
+        2,
+        len(data),
+    ):
+
+        first = data.iloc[
+            index - 2
+        ]
+
+        middle = data.iloc[
+            index - 1
+        ]
+
+        third = data.iloc[
+            index
+        ]
+
+        # ----------------------------------------------------
+        # BULLISH FVG
+        # ----------------------------------------------------
+
+        bullish_gap = (
+            float(third["low"])
+            - float(first["high"])
+        )
+
+        if bullish_gap > 0:
+
+            middle_range = (
+                get_v24_candle_range(
+                    middle
+                )
+            )
+
+            if (
+                bullish_gap
+                >= atr_value
+                * V24_FVG_ATR_MIN
+            ):
+
+                fvgs.append(
+                    {
+                        "type": "BULLISH",
+                        "time": third[
+                            "time"
+                        ],
+                        "start_time": first[
+                            "time"
+                        ],
+                        "end_time": third[
+                            "time"
+                        ],
+                        "upper": float(
+                            third["low"]
+                        ),
+                        "lower": float(
+                            first["high"]
+                        ),
+                        "size": float(
+                            bullish_gap
+                        ),
+                        "atr": float(
+                            atr_value
+                        ),
+                        "middle_range": float(
+                            middle_range
+                        ),
+                        "filled": False,
+                        "active": True,
+                    }
+                )
+
+        # ----------------------------------------------------
+        # BEARISH FVG
+        # ----------------------------------------------------
+
+        bearish_gap = (
+            float(first["low"])
+            - float(third["high"])
+        )
+
+        if bearish_gap > 0:
+
+            middle_range = (
+                get_v24_candle_range(
+                    middle
+                )
+            )
+
+            if (
+                bearish_gap
+                >= atr_value
+                * V24_FVG_ATR_MIN
+            ):
+
+                fvgs.append(
+                    {
+                        "type": "BEARISH",
+                        "time": third[
+                            "time"
+                        ],
+                        "start_time": first[
+                            "time"
+                        ],
+                        "end_time": third[
+                            "time"
+                        ],
+                        "upper": float(
+                            first["low"]
+                        ),
+                        "lower": float(
+                            third["high"]
+                        ),
+                        "size": float(
+                            bearish_gap
+                        ),
+                        "atr": float(
+                            atr_value
+                        ),
+                        "middle_range": float(
+                            middle_range
+                        ),
+                        "filled": False,
+                        "active": True,
+                    }
+                )
+
+    if not fvgs:
+        return []
+
+    # Newest first.
+    fvgs = sorted(
+        fvgs,
+        key=lambda item: item[
+            "time"
+        ],
+        reverse=True,
+    )
+
+    return fvgs[
+        :V24_MAX_FVGS
+            ]
