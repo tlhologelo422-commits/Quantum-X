@@ -7503,3 +7503,369 @@ def render_v24_live_layer():
 # ============================================================
 
 V24_READY = True
+# ============================================================
+# QUANTUM X V2.5 — VWAP + ATR + VOLUME
+# HALF 1 — PART 1A
+# ============================================================
+
+
+# ------------------------------------------------------------
+# V2.5 CONFIGURATION
+# ------------------------------------------------------------
+
+V25_VWAP_MIN_BARS = 3
+
+V25_VOLUME_LOOKBACK = 20
+
+V25_VOLUME_EXPANSION_MULTIPLIER = 1.50
+V25_VOLUME_CONTRACTION_MULTIPLIER = 0.75
+
+V25_ATR_PERIOD = 14
+
+
+# ------------------------------------------------------------
+# V2.5 COMPLETED CANDLE HELPER
+# ------------------------------------------------------------
+
+def get_v25_completed_candles(
+    df,
+    timeframe_minutes,
+):
+    """
+    Return completed candles only.
+
+    The currently forming candle is excluded.
+    """
+
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    data = df.copy()
+
+    if "time" not in data.columns:
+        return pd.DataFrame()
+
+    data["time"] = pd.to_datetime(
+        data["time"],
+        utc=True,
+        errors="coerce",
+    )
+
+    data = data.dropna(
+        subset=["time"]
+    ).copy()
+
+    if data.empty:
+        return data
+
+    now_utc = pd.Timestamp.now(
+        tz="UTC"
+    )
+
+    current_bucket = (
+        now_utc.floor(
+            f"{timeframe_minutes}min"
+        )
+    )
+
+    data = data[
+        data["time"] < current_bucket
+    ].copy()
+
+    return data.reset_index(
+        drop=True
+    )
+
+
+# ------------------------------------------------------------
+# V2.5 TYPICAL PRICE
+# ------------------------------------------------------------
+
+def calculate_v25_typical_price(
+    df,
+):
+    """
+    Calculate candle typical price:
+
+        (High + Low + Close) / 3
+    """
+
+    if df is None or df.empty:
+        return pd.Series(
+            dtype=float
+        )
+
+    required = {
+        "high",
+        "low",
+        "close",
+    }
+
+    if not required.issubset(
+        set(df.columns)
+    ):
+        return pd.Series(
+            dtype=float
+        )
+
+    return (
+        df["high"]
+        + df["low"]
+        + df["close"]
+    ) / 3.0
+
+
+# ------------------------------------------------------------
+# V2.5 VOLUME PREPARATION
+# ------------------------------------------------------------
+
+def get_v25_volume_series(
+    df,
+):
+    """
+    Return the volume series when available.
+
+    The function safely handles feeds where volume
+    is missing or unusable.
+    """
+
+    if df is None or df.empty:
+        return pd.Series(
+            dtype=float
+        )
+
+    if "volume" not in df.columns:
+        return pd.Series(
+            dtype=float
+        )
+
+    volume = pd.to_numeric(
+        df["volume"],
+        errors="coerce",
+    )
+
+    volume = volume.replace(
+        [float("inf"), float("-inf")],
+        pd.NA,
+    )
+
+    return volume.astype(
+        "float64"
+    )
+
+
+# ------------------------------------------------------------
+# V2.5 VWAP CALCULATION
+# ------------------------------------------------------------
+
+def calculate_v25_vwap(
+    df,
+):
+    """
+    Calculate session VWAP.
+
+    VWAP =
+        cumulative(price * volume)
+        /
+        cumulative(volume)
+
+    Uses typical price as the price component.
+    """
+
+    if df is None or df.empty:
+        return None
+
+    data = df.copy()
+
+    typical_price = (
+        calculate_v25_typical_price(
+            data
+        )
+    )
+
+    volume = (
+        get_v25_volume_series(
+            data
+        )
+    )
+
+    if typical_price.empty:
+        return None
+
+    if volume.empty:
+        return None
+
+    valid = (
+        typical_price.notna()
+        & volume.notna()
+        & (volume > 0)
+    )
+
+    if not valid.any():
+        return None
+
+    price = (
+        typical_price[
+            valid
+        ]
+    )
+
+    vol = (
+        volume[
+            valid
+        ]
+    )
+
+    cumulative_volume = (
+        vol.cumsum()
+    )
+
+    if cumulative_volume.empty:
+        return None
+
+    cumulative_pv = (
+        (
+            price * vol
+        ).cumsum()
+    )
+
+    vwap_series = (
+        cumulative_pv
+        / cumulative_volume
+    )
+
+    if vwap_series.empty:
+        return None
+
+    latest_vwap = (
+        vwap_series.iloc[-1]
+    )
+
+    if pd.isna(
+        latest_vwap
+    ):
+        return None
+
+    return float(
+        latest_vwap
+    )
+
+
+# ------------------------------------------------------------
+# V2.5 VWAP SERIES
+# ------------------------------------------------------------
+
+def calculate_v25_vwap_series(
+    df,
+):
+    """
+    Return the complete VWAP series for analysis/display.
+    """
+
+    if df is None or df.empty:
+        return pd.Series(
+            dtype=float
+        )
+
+    typical_price = (
+        calculate_v25_typical_price(
+            df
+        )
+    )
+
+    volume = (
+        get_v25_volume_series(
+            df
+        )
+    )
+
+    if (
+        typical_price.empty
+        or volume.empty
+    ):
+        return pd.Series(
+            dtype=float
+        )
+
+    valid_volume = (
+        volume.fillna(0.0)
+        .clip(lower=0.0)
+    )
+
+    cumulative_volume = (
+        valid_volume.cumsum()
+    )
+
+    cumulative_pv = (
+        (
+            typical_price
+            * valid_volume
+        ).cumsum()
+    )
+
+    result = (
+        cumulative_pv
+        / cumulative_volume.replace(
+            0,
+            pd.NA,
+        )
+    )
+
+    return result.astype(
+        "float64"
+    )
+
+
+# ------------------------------------------------------------
+# V2.5 PRICE VS VWAP
+# ------------------------------------------------------------
+
+def classify_v25_vwap_location(
+    current_price,
+    vwap,
+):
+    """
+    Classify current price relative to VWAP.
+    """
+
+    if (
+        current_price is None
+        or vwap is None
+    ):
+        return "UNKNOWN"
+
+    current_price = float(
+        current_price
+    )
+
+    vwap = float(
+        vwap
+    )
+
+    if current_price > vwap:
+        return "ABOVE"
+
+    if current_price < vwap:
+        return "BELOW"
+
+    return "AT_VWAP"
+
+
+def calculate_v25_vwap_distance(
+    current_price,
+    vwap,
+):
+    """
+    Calculate absolute price distance from VWAP.
+    """
+
+    if (
+        current_price is None
+        or vwap is None
+    ):
+        return None
+
+    return abs(
+        float(current_price)
+        - float(vwap)
+        )
