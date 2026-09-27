@@ -2608,6 +2608,12 @@ if (
             )
             render_v23_liquidity_dashboard(v23_snapshot)
             render_v23_confluence_summary(v23_snapshot)
+            # V2.4 — Order Blocks + Fair Value Gaps
+        if (
+            "render_v24_live_layer" in globals()
+            and "V24_READY" in globals()
+        ):
+            render_v24_live_layer()
         render_live_candle_tables()
 
         st.caption(
