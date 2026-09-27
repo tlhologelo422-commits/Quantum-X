@@ -7869,3 +7869,500 @@ def calculate_v25_vwap_distance(
         float(current_price)
         - float(vwap)
         )
+# ============================================================
+# QUANTUM X V2.5 — VWAP + ATR + VOLUME
+# HALF 1 — PART 1B
+# ============================================================
+
+
+# ------------------------------------------------------------
+# V2.5 TRUE RANGE
+# ------------------------------------------------------------
+
+def calculate_v25_true_range(
+    df,
+):
+    """
+    Calculate candle-by-candle True Range.
+    """
+
+    if df is None or df.empty:
+        return pd.Series(
+            dtype=float
+        )
+
+    required = {
+        "high",
+        "low",
+        "close",
+    }
+
+    if not required.issubset(
+        set(df.columns)
+    ):
+        return pd.Series(
+            dtype=float
+        )
+
+    previous_close = (
+        df["close"].shift(1)
+    )
+
+    range_one = (
+        df["high"]
+        - df["low"]
+    )
+
+    range_two = (
+        df["high"]
+        - previous_close
+    ).abs()
+
+    range_three = (
+        df["low"]
+        - previous_close
+    ).abs()
+
+    true_range = pd.concat(
+        [
+            range_one,
+            range_two,
+            range_three,
+        ],
+        axis=1,
+    ).max(
+        axis=1
+    )
+
+    return true_range
+
+
+# ------------------------------------------------------------
+# V2.5 ATR
+# ------------------------------------------------------------
+
+def calculate_v25_atr(
+    df,
+    period=V25_ATR_PERIOD,
+):
+    """
+    Calculate Average True Range.
+    """
+
+    if df is None or df.empty:
+        return None
+
+    true_range = (
+        calculate_v25_true_range(
+            df
+        )
+    )
+
+    if true_range.empty:
+        return None
+
+    atr = (
+        true_range
+        .rolling(
+            period,
+            min_periods=period,
+        )
+        .mean()
+    )
+
+    if atr.empty:
+        return None
+
+    latest = atr.iloc[-1]
+
+    if pd.isna(latest):
+        return None
+
+    return float(
+        latest
+    )
+
+
+# ------------------------------------------------------------
+# V2.5 ATR SERIES
+# ------------------------------------------------------------
+
+def calculate_v25_atr_series(
+    df,
+    period=V25_ATR_PERIOD,
+):
+    """
+    Return the complete ATR series.
+    """
+
+    if df is None or df.empty:
+        return pd.Series(
+            dtype=float
+        )
+
+    true_range = (
+        calculate_v25_true_range(
+            df
+        )
+    )
+
+    if true_range.empty:
+        return pd.Series(
+            dtype=float
+        )
+
+    return (
+        true_range
+        .rolling(
+            period,
+            min_periods=period,
+        )
+        .mean()
+    )
+
+
+# ------------------------------------------------------------
+# V2.5 VOLUME AVERAGE
+# ------------------------------------------------------------
+
+def calculate_v25_average_volume(
+    df,
+    lookback=V25_VOLUME_LOOKBACK,
+):
+    """
+    Calculate recent average volume.
+    """
+
+    volume = (
+        get_v25_volume_series(
+            df
+        )
+    )
+
+    if volume.empty:
+        return None
+
+    valid_volume = (
+        volume.dropna()
+    )
+
+    if valid_volume.empty:
+        return None
+
+    average = (
+        valid_volume
+        .rolling(
+            lookback,
+            min_periods=1,
+        )
+        .mean()
+        .iloc[-1]
+    )
+
+    if pd.isna(
+        average
+    ):
+        return None
+
+    return float(
+        average
+    )
+
+
+# ------------------------------------------------------------
+# V2.5 CURRENT VOLUME
+# ------------------------------------------------------------
+
+def get_v25_current_volume(
+    df,
+):
+    """
+    Return the latest completed candle volume.
+    """
+
+    volume = (
+        get_v25_volume_series(
+            df
+        )
+    )
+
+    if volume.empty:
+        return None
+
+    valid = (
+        volume.dropna()
+    )
+
+    if valid.empty:
+        return None
+
+    latest = valid.iloc[-1]
+
+    if pd.isna(latest):
+        return None
+
+    return float(
+        latest
+    )
+
+
+# ------------------------------------------------------------
+# V2.5 RELATIVE VOLUME
+# ------------------------------------------------------------
+
+def calculate_v25_relative_volume(
+    df,
+    lookback=V25_VOLUME_LOOKBACK,
+):
+    """
+    Compare latest volume with its recent average.
+
+    Example:
+        1.00 = average volume
+        1.50 = 150% of average
+        2.00 = 200% of average
+    """
+
+    current_volume = (
+        get_v25_current_volume(
+            df
+        )
+    )
+
+    average_volume = (
+        calculate_v25_average_volume(
+            df,
+            lookback,
+        )
+    )
+
+    if (
+        current_volume is None
+        or average_volume is None
+        or average_volume <= 0
+    ):
+        return None
+
+    return float(
+        current_volume
+        / average_volume
+    )
+
+
+# ------------------------------------------------------------
+# V2.5 VOLUME STATE
+# ------------------------------------------------------------
+
+def classify_v25_volume_state(
+    relative_volume,
+):
+    """
+    Classify current volume conditions.
+    """
+
+    if relative_volume is None:
+        return "UNAVAILABLE"
+
+    relative_volume = float(
+        relative_volume
+    )
+
+    if (
+        relative_volume
+        >= V25_VOLUME_EXPANSION_MULTIPLIER
+    ):
+        return "EXPANSION"
+
+    if (
+        relative_volume
+        <= V25_VOLUME_CONTRACTION_MULTIPLIER
+    ):
+        return "CONTRACTION"
+
+    return "NORMAL"
+
+
+# ------------------------------------------------------------
+# V2.5 VOLATILITY STATE
+# ------------------------------------------------------------
+
+def classify_v25_volatility(
+    df,
+):
+    """
+    Classify ATR relative to recent ATR values.
+
+    This is a context measurement, not a trade signal.
+    """
+
+    atr_series = (
+        calculate_v25_atr_series(
+            df
+        )
+    )
+
+    if atr_series.empty:
+        return {
+            "atr": None,
+            "average_atr": None,
+            "relative_atr": None,
+            "state": "UNAVAILABLE",
+        }
+
+    valid = (
+        atr_series.dropna()
+    )
+
+    if valid.empty:
+        return {
+            "atr": None,
+            "average_atr": None,
+            "relative_atr": None,
+            "state": "UNAVAILABLE",
+        }
+
+    current_atr = float(
+        valid.iloc[-1]
+    )
+
+    recent_average = float(
+        valid.tail(
+            V25_VOLUME_LOOKBACK
+        ).mean()
+    )
+
+    if recent_average <= 0:
+        return {
+            "atr": current_atr,
+            "average_atr": recent_average,
+            "relative_atr": None,
+            "state": "UNAVAILABLE",
+        }
+
+    relative_atr = (
+        current_atr
+        / recent_average
+    )
+
+    if relative_atr >= 1.25:
+        state = "EXPANDING"
+
+    elif relative_atr <= 0.75:
+        state = "CONTRACTING"
+
+    else:
+        state = "NORMAL"
+
+    return {
+        "atr": current_atr,
+        "average_atr": recent_average,
+        "relative_atr": float(
+            relative_atr
+        ),
+        "state": state,
+    }
+
+
+# ------------------------------------------------------------
+# V2.5 TIMEFRAME METRICS
+# ------------------------------------------------------------
+
+def build_v25_timeframe_metrics(
+    df,
+    timeframe_minutes,
+    current_price,
+):
+    """
+    Build VWAP, ATR and volume metrics for one timeframe.
+    """
+
+    completed = (
+        get_v25_completed_candles(
+            df,
+            timeframe_minutes,
+        )
+    )
+
+    if completed.empty:
+        return {
+            "timeframe": timeframe_minutes,
+            "bars": 0,
+            "vwap": None,
+            "vwap_location": "UNKNOWN",
+            "vwap_distance": None,
+            "atr": None,
+            "volume": None,
+            "average_volume": None,
+            "relative_volume": None,
+            "volume_state": "UNAVAILABLE",
+            "volatility": {
+                "atr": None,
+                "average_atr": None,
+                "relative_atr": None,
+                "state": "UNAVAILABLE",
+            },
+        }
+
+    vwap = (
+        calculate_v25_vwap(
+            completed
+        )
+    )
+
+    atr = (
+        calculate_v25_atr(
+            completed
+        )
+    )
+
+    current_volume = (
+        get_v25_current_volume(
+            completed
+        )
+    )
+
+    average_volume = (
+        calculate_v25_average_volume(
+            completed
+        )
+    )
+
+    relative_volume = (
+        calculate_v25_relative_volume(
+            completed
+        )
+    )
+
+    return {
+        "timeframe": timeframe_minutes,
+        "bars": len(
+            completed
+        ),
+        "vwap": vwap,
+        "vwap_location": (
+            classify_v25_vwap_location(
+                current_price,
+                vwap,
+            )
+        ),
+        "vwap_distance": (
+            calculate_v25_vwap_distance(
+                current_price,
+                vwap,
+            )
+        ),
+        "atr": atr,
+        "volume": current_volume,
+        "average_volume": average_volume,
+        "relative_volume": relative_volume,
+        "volume_state": (
+            classify_v25_volume_state(
+                relative_volume
+            )
+        ),
+        "volatility": (
+            classify_v25_volatility(
+                completed
+            )
+        ),
+}
