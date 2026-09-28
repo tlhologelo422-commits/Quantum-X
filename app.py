@@ -7523,6 +7523,68 @@ def render_v24_live_layer():
 
 V24_READY = True
 # ============================================================
+# OVERRIDE: Live engine moved BELOW V2.4 so it can see V2.4
+# ============================================================
+@st.fragment(
+    run_every=POLL_SECONDS
+)
+def live_engine_fragment():
+    try:
+        live_data_tick()
+
+        # V2.4 LIVE OB/FVG - NOW DIRECT, NO globals() CHECK
+        render_v24_live_layer()
+
+        # V2.4 DIAGNOSTIC REFRESH
+        if (
+            "render_v24_diagnostic_dashboard" in globals()
+        ):
+            render_v24_diagnostic_dashboard()
+
+        # V2.4 RECONCILIATION REFRESH
+        if (
+            "render_v24_diagnostic_reconciliation" in globals()
+        ):
+            render_v24_diagnostic_reconciliation()
+
+    except Exception as exc:
+        st.session_state[
+            "last_error"
+        ] = str(exc)
+
+    st.subheader(
+        "📊 Live Status"
+    )
+
+    render_status_cards()
+
+    if st.session_state[
+        "last_error"
+    ]:
+        st.error(
+            st.session_state[
+                "last_error"
+            ]
+        )
+
+    render_data_details()
+    render_structure_dashboard()
+
+    # V2.3 - Liquidity + upgraded S/R
+    if (
+        "render_v23_liquidity_dashboard" in globals()
+        and "build_v23_snapshot" in globals()
+    ):
+        try:
+            snap23 = build_v23_snapshot(
+                st.session_state.get("m5_bars"),
+                st.session_state.get("m15_bars"),
+                st.session_state.get("live_mid"),
+            )
+            render_v23_liquidity_dashboard(snap23)
+        except Exception:
+            pass
+# ============================================================
 # QUANTUM X V2.5 — VWAP + ATR + VOLUME
 # HALF 1 — PART 1A
 # ============================================================
