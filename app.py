@@ -10931,3 +10931,501 @@ def build_v24_diagnostic_reconciliation_snapshot():
 
 
 V24_DIAGNOSTIC_PART_3A_READY = True
+# ============================================================
+# QUANTUM X V2.4 — DIAGNOSTIC MODE
+# PART 3B — RECONCILIATION DASHBOARD
+# ============================================================
+#
+# PURPOSE:
+#   Display where detected OB/FVG structures survive or
+#   disappear through the diagnostic reconciliation stages.
+#
+# IMPORTANT:
+#   - Diagnostic only.
+#   - No trading.
+#   - No threshold changes.
+#   - Existing V2.4 detector remains untouched.
+#   - V2.5 remains untouched.
+# ============================================================
+
+
+def render_v24_diagnostic_reconciliation_timeframe(
+    title,
+    data,
+):
+    """
+    Render reconciliation diagnostics for one timeframe.
+    """
+
+    st.markdown(
+        f"### {title}"
+    )
+
+    if not data:
+        st.info(
+            "No reconciliation data available."
+        )
+        return
+
+    if data.get(
+        "status"
+    ) != "READY":
+        st.warning(
+            "Reconciliation data is not ready."
+        )
+        return
+
+    bars = data.get(
+        "bars",
+        0,
+    )
+
+    atr = data.get(
+        "atr",
+        0.0,
+    )
+
+    current_price = data.get(
+        "current_price",
+        0.0,
+    )
+
+    displacement_data = data.get(
+        "displacements",
+        {},
+    )
+
+    ob_data = data.get(
+        "order_blocks",
+        {},
+    )
+
+    fvg_data = data.get(
+        "fvgs",
+        {},
+    )
+
+    displacement_count = displacement_data.get(
+        "total",
+        0,
+    )
+
+    # --------------------------------------------------------
+    # BASIC METRICS
+    # --------------------------------------------------------
+
+    metric_1, metric_2, metric_3, metric_4 = (
+        st.columns(4)
+    )
+
+    with metric_1:
+        st.metric(
+            "Completed Bars",
+            f"{bars}",
+        )
+
+    with metric_2:
+        st.metric(
+            "ATR",
+            f"{atr:.2f}",
+        )
+
+    with metric_3:
+        st.metric(
+            "Displacements",
+            f"{displacement_count}",
+        )
+
+    with metric_4:
+        st.metric(
+            "Current Price",
+            f"{current_price:.2f}",
+        )
+
+    # --------------------------------------------------------
+    # ORDER BLOCK FUNNEL
+    # --------------------------------------------------------
+
+    st.markdown(
+        "**Order Block Reconciliation**"
+    )
+
+    ob_raw = int(
+        ob_data.get(
+            "raw",
+            0,
+        )
+    )
+
+    ob_atr_pass = int(
+        ob_data.get(
+            "atr_pass",
+            0,
+        )
+    )
+
+    ob_atr_rejected = int(
+        ob_data.get(
+            "atr_rejected",
+            0,
+        )
+    )
+
+    ob_above = int(
+        ob_data.get(
+            "above_price",
+            0,
+        )
+    )
+
+    ob_below = int(
+        ob_data.get(
+            "below_price",
+            0,
+        )
+    )
+
+    ob_inside = int(
+        ob_data.get(
+            "inside",
+            0,
+        )
+    )
+
+    ob_near = int(
+        ob_data.get(
+            "near",
+            0,
+        )
+    )
+
+    ob_1, ob_2, ob_3, ob_4 = (
+        st.columns(4)
+    )
+
+    with ob_1:
+        st.metric(
+            "Raw OBs",
+            f"{ob_raw}",
+        )
+
+    with ob_2:
+        st.metric(
+            "ATR Pass",
+            f"{ob_atr_pass}",
+        )
+
+    with ob_3:
+        st.metric(
+            "ATR Rejected",
+            f"{ob_atr_rejected}",
+        )
+
+    with ob_4:
+        st.metric(
+            "Near Price",
+            f"{ob_near}",
+        )
+
+    ob_location_1, ob_location_2, ob_location_3 = (
+        st.columns(3)
+    )
+
+    with ob_location_1:
+        st.metric(
+            "Above Price",
+            f"{ob_above}",
+        )
+
+    with ob_location_2:
+        st.metric(
+            "Below Price",
+            f"{ob_below}",
+        )
+
+    with ob_location_3:
+        st.metric(
+            "Inside Price",
+            f"{ob_inside}",
+        )
+
+    if ob_raw > 0:
+
+        ob_atr_rate = (
+            v24_diagnostic_percentage(
+                ob_atr_pass,
+                ob_raw,
+            )
+        )
+
+        st.caption(
+            "OB funnel: "
+            f"{ob_raw} raw → "
+            f"{ob_atr_pass} ATR-pass "
+            f"({ob_atr_rate:.1f}%) → "
+            f"{ob_near} near current price."
+        )
+
+    else:
+
+        st.caption(
+            "No raw Order Blocks detected."
+        )
+
+    # --------------------------------------------------------
+    # FAIR VALUE GAP FUNNEL
+    # --------------------------------------------------------
+
+    st.markdown(
+        "**Fair Value Gap Reconciliation**"
+    )
+
+    fvg_raw = int(
+        fvg_data.get(
+            "raw",
+            0,
+        )
+    )
+
+    fvg_atr_pass = int(
+        fvg_data.get(
+            "atr_pass",
+            0,
+        )
+    )
+
+    fvg_atr_rejected = int(
+        fvg_data.get(
+            "atr_rejected",
+            0,
+        )
+    )
+
+    fvg_age_pass = int(
+        fvg_data.get(
+            "age_pass",
+            0,
+        )
+    )
+
+    fvg_age_rejected = int(
+        fvg_data.get(
+            "age_rejected",
+            0,
+        )
+    )
+
+    fvg_active = int(
+        fvg_data.get(
+            "active",
+            0,
+        )
+    )
+
+    fvg_filled = int(
+        fvg_data.get(
+            "filled",
+            0,
+        )
+    )
+
+    fvg_unknown = int(
+        fvg_data.get(
+            "unknown",
+            0,
+        )
+    )
+
+    fvg_1, fvg_2, fvg_3, fvg_4 = (
+        st.columns(4)
+    )
+
+    with fvg_1:
+        st.metric(
+            "Raw FVGs",
+            f"{fvg_raw}",
+        )
+
+    with fvg_2:
+        st.metric(
+            "ATR Pass",
+            f"{fvg_atr_pass}",
+        )
+
+    with fvg_3:
+        st.metric(
+            "Age Pass",
+            f"{fvg_age_pass}",
+        )
+
+    with fvg_4:
+        st.metric(
+            "Active",
+            f"{fvg_active}",
+        )
+
+    fvg_status_1, fvg_status_2, fvg_status_3 = (
+        st.columns(3)
+    )
+
+    with fvg_status_1:
+        st.metric(
+            "ATR Rejected",
+            f"{fvg_atr_rejected}",
+        )
+
+    with fvg_status_2:
+        st.metric(
+            "Age Rejected",
+            f"{fvg_age_rejected}",
+        )
+
+    with fvg_status_3:
+        st.metric(
+            "Filled",
+            f"{fvg_filled}",
+        )
+
+    if fvg_raw > 0:
+
+        fvg_atr_rate = (
+            v24_diagnostic_percentage(
+                fvg_atr_pass,
+                fvg_raw,
+            )
+        )
+
+        fvg_age_rate = (
+            v24_diagnostic_percentage(
+                fvg_age_pass,
+                fvg_atr_pass,
+            )
+        )
+
+        fvg_active_rate = (
+            v24_diagnostic_percentage(
+                fvg_active,
+                fvg_age_pass,
+            )
+        )
+
+        st.caption(
+            "FVG funnel: "
+            f"{fvg_raw} raw → "
+            f"{fvg_atr_pass} ATR-pass "
+            f"({fvg_atr_rate:.1f}%) → "
+            f"{fvg_age_pass} age-pass "
+            f"({fvg_age_rate:.1f}%) → "
+            f"{fvg_active} active "
+            f"({fvg_active_rate:.1f}%)."
+        )
+
+    else:
+
+        st.caption(
+            "No raw Fair Value Gaps detected."
+        )
+
+    if fvg_unknown > 0:
+
+        st.warning(
+            f"{fvg_unknown} FVG(s) could not be "
+            "classified by the current diagnostic "
+            "status logic."
+        )
+
+
+# ------------------------------------------------------------
+# MASTER RECONCILIATION DASHBOARD
+# ------------------------------------------------------------
+
+def render_v24_diagnostic_reconciliation():
+    """
+    Render the complete OB/FVG reconciliation dashboard.
+    """
+
+    snapshot = (
+        build_v24_diagnostic_reconciliation_snapshot()
+    )
+
+    st.markdown(
+        "## 🧩 V2.4 OB/FVG Reconciliation"
+    )
+
+    st.caption(
+        "Tracing detected structures through ATR, age, "
+        "price-location and active-status stages."
+    )
+
+    # --------------------------------------------------------
+    # M5
+    # --------------------------------------------------------
+
+    m5 = snapshot.get(
+        "m5",
+        {},
+    )
+
+    render_v24_diagnostic_reconciliation_timeframe(
+        "M5 Execution Timeframe",
+        m5,
+    )
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # M15
+    # --------------------------------------------------------
+
+    m15 = snapshot.get(
+        "m15",
+        {},
+    )
+
+    render_v24_diagnostic_reconciliation_timeframe(
+        "M15 Context Timeframe",
+        m15,
+    )
+
+    st.divider()
+
+    st.info(
+        "Diagnostic only — no trading decisions are "
+        "generated by this panel."
+    )
+
+    generated_at = snapshot.get(
+        "generated_at"
+    )
+
+    if generated_at is not None:
+
+        try:
+
+            st.caption(
+                "Reconciliation snapshot: "
+                f"{generated_at.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+            )
+
+        except AttributeError:
+
+            st.caption(
+                "Reconciliation snapshot generated."
+            )
+
+
+V24_DIAGNOSTIC_PART_3B_READY = True
+
+
+# ============================================================
+# LIVE INTEGRATION
+# ============================================================
+
+if (
+    "render_v24_diagnostic_reconciliation"
+    in globals()
+    and "V24_DIAGNOSTIC_PART_3B_READY"
+    in globals()
+    and V24_DIAGNOSTIC_PART_3B_READY
+):
+    render_v24_diagnostic_reconciliation()
