@@ -8366,3 +8366,482 @@ def build_v25_timeframe_metrics(
             )
         ),
 }
+# ============================================================
+# QUANTUM X V2.4 — DIAGNOSTIC MODE
+# HALF 1 — PART 1A
+# ============================================================
+#
+# Diagnostic-only layer.
+#
+# PURPOSE:
+#   Measure the raw candle environment BEFORE we loosen or
+#   tighten the existing V2.4 Order Block / FVG detector.
+#
+# IMPORTANT:
+#   - Does NOT place trades.
+#   - Does NOT modify existing V2.4 detection.
+#   - Does NOT change thresholds.
+#   - Uses COMPLETED candles only.
+# ============================================================
+
+
+# ------------------------------------------------------------
+# V2.4 DIAGNOSTIC CONFIGURATION
+# ------------------------------------------------------------
+
+V24_DIAGNOSTIC_LOOKBACK_M5 = 180
+V24_DIAGNOSTIC_LOOKBACK_M15 = 120
+
+
+# ------------------------------------------------------------
+# V2.4 DIAGNOSTIC DATA PREPARATION
+# ------------------------------------------------------------
+
+def prepare_v24_diagnostic_data(
+    df,
+    timeframe,
+    lookback,
+):
+    """
+    Prepare completed candles for V2.4 diagnostics.
+
+    The diagnostic intentionally uses the same completed-candle
+    principle as the existing structure engine.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    try:
+        data = df.copy()
+        data = data.sort_index()
+
+        current_bucket = floor_time(
+            utc_now(),
+            timeframe,
+        )
+
+        data = data[
+            data.index < current_bucket
+        ].copy()
+
+        if lookback is not None:
+            data = data.tail(
+                int(lookback)
+            ).copy()
+
+        required_columns = {
+            "open",
+            "high",
+            "low",
+            "close",
+        }
+
+        if not required_columns.issubset(
+            data.columns
+        ):
+            return pd.DataFrame()
+
+        for column in required_columns:
+            data[column] = pd.to_numeric(
+                data[column],
+                errors="coerce",
+            )
+
+        data = data.dropna(
+            subset=[
+                "open",
+                "high",
+                "low",
+                "close",
+            ]
+        )
+
+        return data
+
+    except Exception:
+        return pd.DataFrame()
+
+
+# ------------------------------------------------------------
+# V2.4 DIAGNOSTIC CANDLE METRICS
+# ------------------------------------------------------------
+
+def calculate_v24_diagnostic_metrics(
+    df,
+):
+    """
+    Calculate basic candle statistics used by the diagnostic.
+
+    This does not decide whether a candle is an OB or FVG.
+    """
+    if df is None or df.empty:
+        return {
+            "bars": 0,
+            "atr": 0.0,
+            "average_range": 0.0,
+            "average_body": 0.0,
+            "largest_range": 0.0,
+            "largest_body": 0.0,
+        }
+
+    data = df.copy()
+
+    data["range"] = (
+        data["high"]
+        - data["low"]
+    ).abs()
+
+    data["body"] = (
+        data["close"]
+        - data["open"]
+    ).abs()
+
+    data["body_ratio"] = 0.0
+
+    valid_range = data["range"] > 0
+
+    data.loc[
+        valid_range,
+        "body_ratio",
+    ] = (
+        data.loc[
+            valid_range,
+            "body",
+        ]
+        / data.loc[
+            valid_range,
+            "range",
+        ]
+    )
+
+    previous_close = data[
+        "close"
+    ].shift(1)
+
+    true_range = pd.concat(
+        [
+            data["high"] - data["low"],
+            (
+                data["high"]
+                - previous_close
+            ).abs(),
+            (
+                data["low"]
+                - previous_close
+            ).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
+
+    atr_series = true_range.rolling(
+        window=14,
+        min_periods=7,
+    ).mean()
+
+    atr = (
+        float(atr_series.iloc[-1])
+        if not pd.isna(
+            atr_series.iloc[-1]
+        )
+        else 0.0
+    )
+
+    return {
+        "bars": int(len(data)),
+        "atr": atr,
+        "average_range": float(
+            data["range"].mean()
+        ),
+        "average_body": float(
+            data["body"].mean()
+        ),
+        "largest_range": float(
+            data["range"].max()
+        ),
+        "largest_body": float(
+            data["body"].max()
+        ),
+    }
+
+
+# ------------------------------------------------------------
+# V2.4 DIAGNOSTIC CANDLE CLASSIFICATION
+# ------------------------------------------------------------
+
+def classify_v24_diagnostic_candles(
+    df,
+    atr,
+):
+    """
+    Count basic displacement candidates without applying the
+    existing V2.4 Order Block detector.
+
+    This is deliberately permissive.
+
+    A displacement candidate is simply a candle whose range is
+    at least the configured displacement ATR multiple.
+
+    Body-ratio filtering is reported separately.
+    """
+    result = {
+        "total_candles": 0,
+        "range_candidates": 0,
+        "body_candidates": 0,
+        "bullish_candidates": 0,
+        "bearish_candidates": 0,
+        "zero_range_candles": 0,
+    }
+
+    if df is None or df.empty:
+        return result
+
+    data = df.copy()
+
+    for column in [
+        "open",
+        "high",
+        "low",
+        "close",
+    ]:
+        data[column] = pd.to_numeric(
+            data[column],
+            errors="coerce",
+        )
+
+    data = data.dropna(
+        subset=[
+            "open",
+            "high",
+            "low",
+            "close",
+        ]
+    )
+
+    result[
+        "total_candles"
+    ] = int(len(data))
+
+    if data.empty:
+        return result
+
+    for _, row in data.iterrows():
+
+        candle_range = abs(
+            float(row["high"])
+            - float(row["low"])
+        )
+
+        candle_body = abs(
+            float(row["close"])
+            - float(row["open"])
+        )
+
+        if candle_range <= 0:
+            result[
+                "zero_range_candles"
+            ] += 1
+            continue
+
+        body_ratio = (
+            candle_body
+            / candle_range
+        )
+
+        if (
+            atr > 0
+            and candle_range
+            >= (
+                atr
+                * V24_DISPLACEMENT_ATR
+            )
+        ):
+            result[
+                "range_candidates"
+            ] += 1
+
+            if (
+                body_ratio
+                >= 0.60
+            ):
+                result[
+                    "body_candidates"
+                ] += 1
+
+                if float(
+                    row["close"]
+                ) > float(
+                    row["open"]
+                ):
+                    result[
+                        "bullish_candidates"
+                    ] += 1
+
+                elif float(
+                    row["close"]
+                ) < float(
+                    row["open"]
+                ):
+                    result[
+                        "bearish_candidates"
+                    ] += 1
+
+    return result
+
+
+# ------------------------------------------------------------
+# V2.4 DIAGNOSTIC TIMEFRAME ANALYSIS
+# ------------------------------------------------------------
+
+def build_v24_diagnostic_timeframe(
+    df,
+    timeframe,
+    lookback,
+):
+    """
+    Build the Part 1A diagnostic snapshot for one timeframe.
+    """
+    data = prepare_v24_diagnostic_data(
+        df,
+        timeframe,
+        lookback,
+    )
+
+    if data.empty:
+        return {
+            "timeframe": timeframe,
+            "status": "NO DATA",
+            "metrics": {
+                "bars": 0,
+                "atr": 0.0,
+                "average_range": 0.0,
+                "average_body": 0.0,
+                "largest_range": 0.0,
+                "largest_body": 0.0,
+            },
+            "candidates": {
+                "total_candles": 0,
+                "range_candidates": 0,
+                "body_candidates": 0,
+                "bullish_candidates": 0,
+                "bearish_candidates": 0,
+                "zero_range_candles": 0,
+            },
+        }
+
+    metrics = (
+        calculate_v24_diagnostic_metrics(
+            data
+        )
+    )
+
+    candidates = (
+        classify_v24_diagnostic_candles(
+            data,
+            metrics["atr"],
+        )
+    )
+
+    return {
+        "timeframe": timeframe,
+        "status": "READY",
+        "metrics": metrics,
+        "candidates": candidates,
+    }
+
+
+# ------------------------------------------------------------
+# V2.4 DIAGNOSTIC SNAPSHOT
+# ------------------------------------------------------------
+
+def build_v24_diagnostic_snapshot():
+    """
+    Build M5 and M15 diagnostic information.
+
+    No trading decision is made here.
+    """
+    m5_df = st.session_state.get(
+        "m5_bars",
+        pd.DataFrame(),
+    )
+
+    m15_df = st.session_state.get(
+        "m15_bars",
+        pd.DataFrame(),
+    )
+
+    m5 = build_v24_diagnostic_timeframe(
+        m5_df,
+        M5,
+        V24_DIAGNOSTIC_LOOKBACK_M5,
+    )
+
+    m15 = build_v24_diagnostic_timeframe(
+        m15_df,
+        M15,
+        V24_DIAGNOSTIC_LOOKBACK_M15,
+    )
+
+    return {
+        "status": (
+            "READY"
+            if (
+                m5["status"] == "READY"
+                or m15["status"] == "READY"
+            )
+            else "NO DATA"
+        ),
+        "m5": m5,
+        "m15": m15,
+        "generated_at": utc_now(),
+    }
+
+
+# ------------------------------------------------------------
+# V2.4 DIAGNOSTIC TEXT HELPERS
+# ------------------------------------------------------------
+
+def v24_diagnostic_percentage(
+    numerator,
+    denominator,
+):
+    """
+    Safely calculate a diagnostic percentage.
+    """
+    try:
+        denominator = float(
+            denominator
+        )
+
+        if denominator <= 0:
+            return 0.0
+
+        return (
+            float(numerator)
+            / denominator
+        ) * 100.0
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return 0.0
+
+
+def v24_diagnostic_status(
+    count,
+):
+    """
+    Convert a diagnostic count into a simple status.
+    """
+    try:
+        value = int(count)
+    except (
+        TypeError,
+        ValueError,
+    ):
+        value = 0
+
+    if value > 0:
+        return "DETECTED"
+
+    return "NONE"
