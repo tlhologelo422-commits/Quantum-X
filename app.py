@@ -401,3 +401,84 @@ def bootstrap_m5():
     st.session_state.bars = bars
     refresh_signal()
     return len(bars)
+def update_live_bar(mid):
+    if mid is None:
+        return
+    bucket = floor_m5(now_utc())
+    bars = st.session_state.bars
+
+    if bars and floor_m5(bars[-1]["time"]) == bucket:
+        last = bars[-1]
+        last["high"] = max(last["high"], mid)
+        last["low"] = min(last["low"], mid)
+        last["close"] = mid
+    elif not bars or bucket > floor_m5(bars[-1]["time"]):
+        bars.append({"time": bucket, "open": mid, "high": mid, "low": mid,
+                     "close": mid, "source": "IG live"})
+
+    st.session_state.bars = bars[-400:]
+
+
+def bars_dataframe():
+    if not st.session_state.bars:
+        return pd.DataFrame()
+    df = pd.DataFrame(st.session_state.bars)
+    df["time"] = pd.to_datetime(df["time"], utc=True)
+    for c in ["open", "high", "low", "close"]:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+    return df.dropna(subset=["open", "high", "low", "close"]).reset_index(drop=True)
+
+
+def completed_df():
+    """Only fully closed candles — signals never repaint."""
+    df = bars_dataframe()
+    if df.empty:
+        return df
+    return df[df["time"] < floor_m5(now_utc())].reset_index(drop=True)
+
+
+# ============================================================
+# INDICATORS
+# ============================================================
+
+def add_indicators(df):
+    d = df.copy()
+    ema_fast = d["close"].ewm(span=MACD_FAST, adjust=False).mean()
+    ema_slow = d["close"].ewm(span=MACD_SLOW, adjust=False).mean()
+    d["macd"] = ema_fast - ema_slow
+    d["sig"] = d["macd"].ewm(span=MACD_SIGNAL, adjust=False).mean()
+    d["hist"] = d["macd"] - d["sig"]
+    d["ema"] = d["close"].ewm(span=EMA_TREND, adjust=False).mean()
+
+    prev_close = d["close"].shift(1)
+    true_range = pd.concat([
+        (d["high"] - d["low"]).abs(),
+        (d["high"] - prev_close).abs(),
+        (d["low"] - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    d["atr"] = true_range.rolling(ATR_PERIOD, min_periods=5).mean()
+    return d
+
+
+def find_pivots(values, kind):
+    out = []
+    for i in range(PIVOT_LEFT, len(values) - PIVOT_RIGHT):
+        v = values[i]
+        left = values[i - PIVOT_LEFT:i]
+        right = values[i + 1:i + 1 + PIVOT_RIGHT]
+        if kind == "low" and all(v <= x for x in left) and all(v < x for x in right):
+            out.append(i)
+        if kind == "high" and all(v >= x for x in left) and all(v > x for x in right):
+            out.append(i)
+    return out
+
+
+def macd_cross(d, side, lookback=3):
+    diff = (d["macd"] - d["sig"]).values
+    for k in range(1, lookback + 1):
+        now, prev = diff[-k], diff[-k - 1]
+        if side == "BUY" and prev <= 0 < now:
+            return True
+        if side == "SELL" and prev >= 0 > now:
+            return True
+    return False
