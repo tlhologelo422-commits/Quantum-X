@@ -1330,3 +1330,67 @@ def render_dashboard():
         )
 
     st.divider()
+  # --------------------------------------------------------
+    # BOOTSTRAP
+    # --------------------------------------------------------
+
+    st.subheader("📚 M5 Data Bootstrap")
+
+    df = bars_dataframe()
+
+    if len(df) >= MIN_BOOTSTRAP_BARS:
+        st.success(
+            f"Real M5 structure loaded: "
+            f"{len(df)} candles"
+        )
+
+        if (
+            st.session_state.calibration_offset
+            is not None
+        ):
+            st.write(
+                "Calibration offset: "
+                f"`{st.session_state.calibration_offset:+.2f}`"
+            )
+
+        if (
+            st.session_state.yahoo_last_price
+            is not None
+        ):
+            st.write(
+                "Yahoo GC=F bootstrap close: "
+                f"`{st.session_state.yahoo_last_price:.2f}`"
+            )
+
+    else:
+        st.info(
+            f"M5 structure: "
+            f"{len(df)}/{MIN_BOOTSTRAP_BARS} "
+            "completed candles."
+        )
+
+    # --------------------------------------------------------
+    # S/R
+    # --------------------------------------------------------
+
+    sr1, sr2 = st.columns(2)
+
+    with sr1:
+        st.metric(
+            "🟢 Support",
+            (
+                f"{st.session_state.support:.2f}"
+                if st.session_state.support is not None
+                else "—"
+            ),
+        )
+
+    with sr2:
+        st.metric(
+            "🔴 Resistance",
+            (
+                f"{st.session_state.resistance:.2f}"
+                if st.session_state.resistance is not None
+                else "—"
+            ),
+        )
