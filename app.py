@@ -482,3 +482,74 @@ def macd_cross(d, side, lookback=3):
         if side == "SELL" and prev >= 0 > now:
             return True
     return False
+def trend_flags(d):
+    close = float(d["close"].iloc[-1])
+    ema_now = float(d["ema"].iloc[-1])
+    ema_old = float(d["ema"].iloc[-6])
+    return (close > ema_now and ema_now > ema_old,
+            close < ema_now and ema_now < ema_old)
+
+
+# ============================================================
+# MACD DIVERGENCE + CROSS SETUPS
+# ============================================================
+
+def detect_divergences(d, atr):
+    n = len(d)
+    low, high = d["low"].values, d["high"].values
+    macd = d["macd"].values
+    times = d["time"]
+    min_move = 0.05 * atr
+    trend_up, trend_dn = trend_flags(d)
+    found = []
+
+    lows = find_pivots(low, "low")
+    if lows and (n - 1 - lows[-1]) <= SIGNAL_MAX_AGE:
+        p2 = lows[-1]
+        for p1 in reversed(lows[-4:-1]):
+            gap = p2 - p1
+            if not (PIVOT_MIN_GAP <= gap <= PIVOT_MAX_GAP):
+                continue
+            stamp = times.iloc[p2].isoformat()
+            if low[p2] < low[p1] - min_move and macd[p2] > macd[p1] and macd[p1] < 0:
+                found.append({"side": "BUY", "kind": "Regular bullish divergence", "type": "div",
+                              "sl_ref": float(low[p2]), "id": f"BUY:RD:{stamp}"})
+                break
+            if trend_up and low[p2] > low[p1] + min_move and macd[p2] < macd[p1]:
+                found.append({"side": "BUY", "kind": "Hidden bullish divergence", "type": "div",
+                              "sl_ref": float(low[p2]), "id": f"BUY:HD:{stamp}"})
+                break
+
+    highs = find_pivots(high, "high")
+    if highs and (n - 1 - highs[-1]) <= SIGNAL_MAX_AGE:
+        p2 = highs[-1]
+        for p1 in reversed(highs[-4:-1]):
+            gap = p2 - p1
+            if not (PIVOT_MIN_GAP <= gap <= PIVOT_MAX_GAP):
+                continue
+            stamp = times.iloc[p2].isoformat()
+            if high[p2] > high[p1] + min_move and macd[p2] < macd[p1] and macd[p1] > 0:
+                found.append({"side": "SELL", "kind": "Regular bearish divergence", "type": "div",
+                              "sl_ref": float(high[p2]), "id": f"SELL:RD:{stamp}"})
+                break
+            if trend_dn and high[p2] < high[p1] - min_move and macd[p2] > macd[p1]:
+                found.append({"side": "SELL", "kind": "Hidden bearish divergence", "type": "div",
+                              "sl_ref": float(high[p2]), "id": f"SELL:HD:{stamp}"})
+                break
+    return found
+
+
+def detect_cross_setups(d):
+    """Trend-pullback MACD cross: cross back with the trend, on the pullback side of zero."""
+    out = []
+    macd_now = float(d["macd"].iloc[-1])
+    stamp = d["time"].iloc[-1].isoformat()
+    trend_up, trend_dn = trend_flags(d)
+
+    if trend_up and macd_now < 0 and macd_cross(d, "BUY", 2):
+        out.append({"side": "BUY", "kind": "MACD pullback cross", "type": "cross",
+                    "sl_ref": float(d["low"].iloc[-3:].min()), "id": f"BUY:X:{stamp}"})
+    if trend_dn and macd_now > 0 and macd_cross(d, "SELL", 2):
+        out.append({"side": "SELL", "kind": "MACD pullback cross", "type": "cross",
+                    "sl_ref": float(d["high"].iloc[-3:].max()), "id": f"SELL:X:{stamp}"})
+    return out
