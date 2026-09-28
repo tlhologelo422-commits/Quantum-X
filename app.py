@@ -941,7 +941,7 @@ def finish_cycle(reason, cfg):
     start_cooldown(cfg)
     save_runtime()
     return True       
-  def manage_cycle(positions, m, cfg):
+def manage_cycle(positions, m, cfg):
     ss = st.session_state
     c = ss.cycle
     legs = c["legs"]
