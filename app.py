@@ -2572,7 +2572,7 @@ if (
     )
     def live_engine_fragment():
         try:
-                           live_data_tick()
+                        live_data_tick()
 
             # V2.4 LIVE OB/FVG REFRESH
             if (
@@ -2592,7 +2592,7 @@ if (
             ):
                 render_v24_diagnostic_reconciliation()
 
-        except Exception as exc: 
+        except Exception as exc:
             st.session_state[
                 "last_error"
             ] = str(exc)
