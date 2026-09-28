@@ -949,3 +949,52 @@ def evaluate_signal():
     st.session_state.last_signal_reason = reason
 
     return signal
+# ============================================================
+# IG POSITIONS
+# ============================================================
+
+def get_open_xau_positions():
+    url = f"{IG_BASE_URL}/positions"
+
+    response = requests.get(
+        url,
+        headers=ig_headers("2"),
+        timeout=15,
+    )
+
+    if response.status_code >= 400:
+        raise RuntimeError(
+            f"IG positions request failed: "
+            f"{response.status_code} "
+            f"{response.text[:500]}"
+        )
+
+    data = response.json()
+
+    positions = data.get(
+        "positions",
+        [],
+    )
+
+    matching = []
+
+    for item in positions:
+        position = item.get(
+            "position",
+            {},
+        )
+
+        market = item.get(
+            "market",
+            {},
+        )
+
+        epic = (
+            position.get("epic")
+            or market.get("epic")
+        )
+
+        if epic == IG_EPIC:
+            matching.append(item)
+
+    return matching
