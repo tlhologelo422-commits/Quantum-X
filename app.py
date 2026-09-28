@@ -10078,3 +10078,16 @@ def render_v24_diagnostic_dashboard():
 
 
 V24_DIAGNOSTIC_PART_2A_READY = True
+# ============================================================
+# QUANTUM X V2.4 — DIAGNOSTIC MODE
+# PART 2B — LIVE DASHBOARD INTEGRATION
+# ============================================================
+
+if (
+    "render_v24_diagnostic_dashboard"
+    in globals()
+    and "V24_DIAGNOSTIC_PART_2A_READY"
+    in globals()
+    and V24_DIAGNOSTIC_PART_2A_READY
+):
+    render_v24_diagnostic_dashboard()
