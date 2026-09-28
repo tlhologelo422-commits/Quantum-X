@@ -719,4 +719,109 @@ def update_position(deal_id, stop_level, limit_level):
         body["limitLevel"] = round(limit_level, 2)
     res = ig_request("PUT", f"/positions/otc/{deal_id}", "2", body)
     return confirm_deal(res["dealReference"])
-    
+   def open_normal(sig, cfg):
+    ss = st.session_state
+    m = get_ig_market()
+    direction, atr = sig["signal"], sig["atr"]
+    entry = m["offer"] if direction == "BUY" else m["bid"]
+
+    floor_dist = max(ss.min_stop * 1.2, MIN_STOP_DISTANCE)
+    dist = abs(entry - sig["sl_ref"]) + 0.25 * atr           # stop just beyond the swing
+    if dist > max(2.5 * atr, floor_dist):
+        raise RiskRefused(f"Structure stop too wide ({dist:.2f} > 2.5 ATR). Skipped.")
+    dist = max(dist, floor_dist)
+    limit = max(dist * cfg["rr"], ss.min_stop * 1.2)
+
+    size = min(cfg["size"], floor2(cfg["risk_usd"] / (dist * cfg["contract"])))
+    if size < ss.min_deal_size - 1e-9:
+        raise RiskRefused(f"Risk ${cfg['risk_usd']:.2f} too small for stop {dist:.2f} "
+                          f"at min size {ss.min_deal_size}. Skipped.")
+    size = round(size, 2)
+
+    res = open_position(direction, size, dist, limit)
+    level = safe_float(res.get("level")) or entry
+    ss.active_normal = {
+        "dealId": res.get("dealId"), "direction": direction, "size": size,
+        "entry": level, "stop_dist": dist, "limit_dist": limit,
+        "be_done": False, "equity_at_open": ss.equity,
+        "signal": sig.get("reason"), "opened": now_utc().isoformat(),
+    }
+    ss.trade_count += 1
+    ss.last_order = {"mode": "Normal", **ss.active_normal}
+    log(f"NORMAL {direction} {size} @ {level:.2f} | SL {dist:.2f} | TP {limit:.2f} "
+        f"| risk≈${dist * size * cfg['contract']:.2f}")
+    save_runtime()
+
+
+def manage_normal(positions, m, cfg):
+    ss = st.session_state
+    a = ss.active_normal
+    pos = next((p for p in positions if p["dealId"] == a["dealId"]), None)
+
+    if pos is None:                                   # closed by SL / TP / manual
+        refresh_account(force=True)
+        before = a.get("equity_at_open")
+        delta = (ss.equity - before) if (ss.equity is not None and before is not None) else None
+        note = f" | result ≈ {delta:+.2f}" if delta is not None else ""
+        log(f"Normal trade closed{note}")
+        ss.active_normal = None
+        start_cooldown(cfg)
+        save_runtime()
+        return
+
+    if not a["be_done"]:                              # move stop to break-even (+10% of risk)
+        if a["direction"] == "BUY":
+            favourable = m["bid"] - a["entry"]
+        else:
+            favourable = a["entry"] - m["offer"]
+        if favourable >= cfg["be_trigger"] * a["stop_dist"]:
+            sign = 1 if a["direction"] == "BUY" else -1
+            new_stop = a["entry"] + sign * 0.1 * a["stop_dist"]
+            gap = (m["bid"] - new_stop) if sign == 1 else (new_stop - m["offer"])
+            if gap >= ss.min_stop * 1.2:
+                update_position(a["dealId"], new_stop, pos.get("limitLevel"))
+                a["be_done"] = True
+                log(f"Break-even set at {new_stop:.2f}")
+                save_runtime()
+
+
+# ---------------- HEDGING MARTINGALE (ZONE RECOVERY) -------------
+#
+#  First trade at E (say BUY). Zone = [L, U] = [E - Z, E].
+#  Price falls to L  -> open SELL hedge (bigger size).
+#  Price rises to U  -> open BUY  (bigger again) ... alternating.
+#  Every new leg is sized so that a move of T beyond the zone in its
+#  favour clears the whole basket PLUS the base profit target.
+#  Basket closes at target. HARD STOPS:
+#     * max_legs
+#     * max_cycle_risk : a leg is only opened if the loss locked at the
+#       opposite edge stays below the cap; otherwise the cycle is CUT.
+#     * disaster stop on every leg in case the bot dies.
+
+def plan_next_leg(legs, U, L, Z, T, cfg):
+    """Return (size, reason). size=None means: do NOT hedge, cut the cycle."""
+    if len(legs) >= cfg["max_legs"]:
+        return None, f"max legs ({cfg['max_legs']}) reached"
+
+    s0 = legs[0]["size"]
+    new_dir = opposite(legs[-1]["direction"])
+    open_level = L if new_dir == "SELL" else U           # where the new leg opens
+    far_level = U if new_dir == "SELL" else L            # the other zone edge
+
+    p_now = legs_points(legs, open_level, open_level)
+    buys = sum(x["size"] for x in legs if x["direction"] == "BUY")
+    sells = sum(x["size"] for x in legs if x["direction"] == "SELL")
+    net_against = (buys - sells) if new_dir == "SELL" else (sells - buys)
+
+    needed = (s0 * T - p_now) / T + net_against
+    size = max(needed, legs[-1]["size"] * cfg["mult"])
+    size = ceil2(size)
+
+    new_leg = {"direction": new_dir, "size": size, "level": open_level}
+    p_far = legs_points(legs + [new_leg], far_level, far_level)
+    locked_loss = -p_far * cfg["contract"]
+    if locked_loss > cfg["max_cycle_risk"]:
+        return None, (f"next leg {size:.2f} would lock ${locked_loss:.2f} "
+                      f"> cycle cap ${cfg['max_cycle_risk']:.2f}")
+    return size, "ok"
+                  
