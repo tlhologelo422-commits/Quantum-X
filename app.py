@@ -31,7 +31,7 @@ YAHOO_SYMBOL = "GC=F"
 POLL_SECONDS = 5
 
 MAX_TRADES_PER_DAY = 10
-MAX_OPEN_POSITIONS = 1
+MAX_OPEN_POSITIONS = 5
 
 MIN_BOOTSTRAP_BARS = 6
 BOOTSTRAP_BARS = 80
@@ -1028,3 +1028,105 @@ def calculate_trade_distances(rr):
         stop_distance,
         limit_distance,
     )
+# ============================================================
+# IG ORDER
+# ============================================================
+
+def place_ig_order(
+    direction,
+    size,
+    rr,
+):
+    if direction not in ("BUY", "SELL"):
+        raise ValueError(
+            "Invalid order direction."
+        )
+
+    reset_daily_counter_if_needed()
+
+    if (
+        st.session_state.trade_count
+        >= MAX_TRADES_PER_DAY
+    ):
+        raise RuntimeError(
+            "Daily trade limit reached."
+        )
+
+    positions = get_open_xau_positions()
+
+    if len(positions) >= MAX_OPEN_POSITIONS:
+        raise RuntimeError(
+            "An XAU/USD position is already open."
+        )
+
+    market = get_ig_market()
+
+    if market["market_status"] != "TRADEABLE":
+        raise RuntimeError(
+            f"IG market is not tradeable: "
+            f"{market['market_status']}"
+        )
+
+    spread = (
+        market["offer"] -
+        market["bid"]
+    )
+
+    if spread > MAX_SPREAD:
+        raise RuntimeError(
+            f"Spread too wide: {spread:.2f}"
+        )
+
+    stop_distance, limit_distance = (
+        calculate_trade_distances(rr)
+    )
+
+    payload = {
+        "epic": IG_EPIC,
+        "expiry": "-",
+        "direction": direction,
+        "size": float(size),
+        "orderType": "MARKET",
+        "currencyCode": "USD",
+        "forceOpen": True,
+        "guaranteedStop": False,
+        "stopDistance": round(
+            stop_distance,
+            2,
+        ),
+        "limitDistance": round(
+            limit_distance,
+            2,
+        ),
+    }
+
+    url = f"{IG_BASE_URL}/positions/otc"
+
+    response = requests.post(
+        url,
+        headers=ig_headers("2"),
+        json=payload,
+        timeout=15,
+    )
+
+    if response.status_code >= 400:
+        raise RuntimeError(
+            f"IG order failed: "
+            f"{response.status_code} "
+            f"{response.text[:700]}"
+        )
+
+    result = response.json()
+
+    st.session_state.trade_count += 1
+
+    st.session_state.last_order = {
+        "time": now_utc(),
+        "direction": direction,
+        "size": size,
+        "stop_distance": stop_distance,
+        "limit_distance": limit_distance,
+        "response": result,
+    }
+
+    return result
