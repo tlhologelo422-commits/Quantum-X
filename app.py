@@ -646,7 +646,8 @@ def save_runtime():
             json.dump({"cycle": ss.cycle, "active_normal": ss.active_normal}, fh, default=str)
     except Exception as exc:
         log(f"State save failed: {exc}")
-    def load_runtime():
+
+def load_runtime():
     ss = st.session_state
     try:
         if os.path.exists(STATE_FILE):
@@ -657,7 +658,6 @@ def save_runtime():
     except Exception as exc:
         log(f"State load failed: {exc}")
     ss.cycle_loaded = True
-
 
 # ============================================================
 # RISK ENGINE
