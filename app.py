@@ -158,3 +158,86 @@ def set_error(message):
     if message != st.session_state.last_error:
         log(f"⚠️ {message}")
     st.session_state.last_error = message
+def reset_daily_if_needed():
+    today = now_utc().date().isoformat()
+    if st.session_state.trade_day != today:
+        st.session_state.trade_day = today
+        st.session_state.trade_count = 0
+        st.session_state.day_start_equity = None
+        st.session_state.done_signal_ids = []
+
+
+def get_secret(name):
+    try:
+        value = st.secrets.get(name)
+        if value:
+            return str(value)
+    except Exception:
+        pass
+    return os.environ.get(name)      # Codespaces secrets live here
+
+
+# ============================================================
+# IG API LAYER
+# ============================================================
+
+def ig_login():
+    username = get_secret("IG_USERNAME")
+    password = get_secret("IG_PASSWORD")
+    api_key = get_secret("IG_API_KEY")
+
+    if not (username and password and api_key):
+        raise RuntimeError("IG credentials missing (IG_USERNAME / IG_PASSWORD / IG_API_KEY).")
+
+    response = requests.post(
+        f"{IG_BASE_URL}/session",
+        headers={"X-IG-API-KEY": api_key, "Content-Type": "application/json",
+                 "Accept": "application/json", "Version": "2"},
+        json={"identifier": username, "password": password, "encryptedPassword": False},
+        timeout=15,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(f"IG login failed: {response.status_code} {response.text[:300]}")
+
+    cst = response.headers.get("CST")
+    token = response.headers.get("X-SECURITY-TOKEN")
+    if not cst or not token:
+        raise RuntimeError("IG login OK but security tokens missing.")
+
+    st.session_state.ig_cst = cst
+    st.session_state.ig_security_token = token
+    st.session_state.ig_connected = True
+
+
+def ig_headers(version="2", delete_override=False):
+    api_key = get_secret("IG_API_KEY")
+    if not (api_key and st.session_state.ig_cst and st.session_state.ig_security_token):
+        raise RuntimeError("Not logged in to IG.")
+    headers = {
+        "X-IG-API-KEY": api_key,
+        "CST": st.session_state.ig_cst,
+        "X-SECURITY-TOKEN": st.session_state.ig_security_token,
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Version": version,
+    }
+    if delete_override:
+        headers["_method"] = "DELETE"
+    return headers
+
+
+def ig_request(method, path, version="2", body=None, delete_override=False, _retry=True):
+    response = requests.request(
+        method,
+        f"{IG_BASE_URL}{path}",
+        headers=ig_headers(version, delete_override),
+        json=body,
+        timeout=15,
+    )
+    if response.status_code == 401 and _retry:      # token expired -> re-login once
+        ig_login()
+        return ig_request(method, path, version, body, delete_override, _retry=False)
+    if response.status_code >= 400:
+        raise RuntimeError(f"IG {method} {path}: {response.status_code} {response.text[:300]}")
+    return response.json() if response.text else {}
+    
