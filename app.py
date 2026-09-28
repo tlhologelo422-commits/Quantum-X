@@ -1464,3 +1464,73 @@ def render_dashboard():
                 "Reason: "
                 f"{order['signal_reason']}"
     )
+    # --------------------------------------------------------
+    # ERRORS
+    # --------------------------------------------------------
+
+    if st.session_state.last_error:
+        st.error(
+            "⚠️ "
+            + st.session_state.last_error
+        )
+
+    # --------------------------------------------------------
+    # M5 TABLE
+    # --------------------------------------------------------
+
+    st.subheader("📊 Local M5 Candles")
+
+    if not df.empty:
+        display_df = df.tail(20).copy()
+
+        display_df["time"] = (
+            display_df["time"]
+            .dt.strftime("%Y-%m-%d %H:%M")
+        )
+
+        for column in [
+            "open",
+            "high",
+            "low",
+            "close",
+        ]:
+            display_df[column] = (
+                display_df[column].round(2)
+            )
+
+        st.dataframe(
+            display_df[
+                [
+                    "time",
+                    "open",
+                    "high",
+                    "low",
+                    "close",
+                    "source",
+                ]
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    else:
+        st.info(
+            "No M5 candles loaded yet."
+        )
+
+
+# ============================================================
+# PAGE
+# ============================================================
+
+st.title("🐎 Quantum X PRO")
+
+st.caption(
+    "Automated IG Demo — XAU/USD M5 Scalper"
+)
+
+st.caption(
+    "Real GC=F M5 bootstrap + IG live execution "
+    "• Support + Resistance + Confirmation Candles "
+    "• No AI • M5 only"
+    )
