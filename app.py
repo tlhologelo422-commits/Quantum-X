@@ -1534,3 +1534,133 @@ st.caption(
     "• Support + Resistance + Confirmation Candles "
     "• No AI • M5 only"
     )
+# ============================================================
+# SIDEBAR
+# ============================================================
+
+with st.sidebar:
+    st.header("⚙️ Scalper Settings")
+
+    size = st.number_input(
+        "Trade Size",
+        min_value=0.01,
+        max_value=100.0,
+        value=DEFAULT_SIZE,
+        step=0.01,
+        format="%.2f",
+    )
+
+    rr = st.number_input(
+        "Risk / Reward",
+        min_value=0.5,
+        max_value=5.0,
+        value=DEFAULT_RR,
+        step=0.1,
+        format="%.1f",
+    )
+
+    st.divider()
+
+    st.write("🥇 XAU/USD")
+    st.code(IG_EPIC)
+
+    st.write(
+        f"Daily trades: "
+        f"{st.session_state.trade_count}/"
+        f"{MAX_TRADES_PER_DAY}"
+    )
+
+    st.write(
+        f"Max open positions: "
+        f"{MAX_OPEN_POSITIONS}"
+    )
+
+    st.write(
+        f"Max spread: "
+        f"{MAX_SPREAD:.2f}"
+    )
+
+    st.divider()
+
+    if st.button(
+        "🔌 Connect IG Demo",
+        use_container_width=True,
+    ):
+        try:
+            ig_login()
+
+            count = bootstrap_m5()
+
+            st.session_state.last_error = None
+
+            st.success(
+                f"IG connected + "
+                f"{count} real M5 candles loaded."
+            )
+
+        except Exception as exc:
+            st.session_state.ig_connected = False
+            st.session_state.last_error = str(exc)
+
+    if st.session_state.ig_connected:
+        st.success(
+            "🟢 IG DEMO CONNECTED"
+        )
+    else:
+        st.warning(
+            "🔴 IG NOT CONNECTED"
+        )
+
+    if st.button(
+        "🚀 Start Bot",
+        use_container_width=True,
+        disabled=not st.session_state.ig_connected,
+    ):
+        try:
+            if not st.session_state.bars:
+                bootstrap_m5()
+
+            st.session_state.bot_running = True
+            st.session_state.last_error = None
+
+        except Exception as exc:
+            st.session_state.last_error = str(exc)
+
+    if st.button(
+        "🛑 Stop Bot",
+        use_container_width=True,
+    ):
+        st.session_state.bot_running = False
+
+    if st.session_state.bot_running:
+        st.success(
+            "🟢 BOT RUNNING"
+        )
+    else:
+        st.info(
+            "⏹️ BOT STOPPED"
+        )
+
+
+# ============================================================
+# LIVE AUTOMATION
+# ============================================================
+
+@st.fragment(run_every=POLL_SECONDS)
+def live_automation():
+    reset_daily_counter_if_needed()
+
+    if (
+        st.session_state.ig_connected
+        and st.session_state.bot_running
+    ):
+        automation_tick(
+            size=size,
+            rr=rr,
+        )
+
+    render_dashboard()
+
+
+live_automation()
+                          
