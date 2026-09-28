@@ -837,8 +837,7 @@ def fit_first_size(direction, Z, T, cfg, min_size):
         smaller = floor2(size * 0.9)
         size = smaller if smaller < size else round(size - 0.01, 2)
     return None
-
-def open_cycle(sig, cfg):
+ def open_cycle(sig, cfg):
     ss = st.session_state
     m = get_ig_market()
     direction, atr = sig["signal"], sig["atr"]
@@ -883,8 +882,7 @@ def finish_cycle(reason, cfg):
     ss.cycle = None
     start_cooldown(cfg)
     save_runtime()
-    return True
-        
+    return True       
   def manage_cycle(positions, m, cfg):
     ss = st.session_state
     c = ss.cycle
