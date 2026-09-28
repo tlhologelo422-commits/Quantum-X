@@ -553,3 +553,97 @@ def detect_cross_setups(d):
         out.append({"side": "SELL", "kind": "MACD pullback cross", "type": "cross",
                     "sl_ref": float(d["high"].iloc[-3:].max()), "id": f"SELL:X:{stamp}"})
     return out
+def evaluate_signal(d, bid, offer, cfg):
+    def wait(reason, **extra):
+        base = {"signal": "WAIT", "score": 0, "reason": reason, "id": None,
+                "kind": None, "atr": None, "sl_ref": None}
+        base.update(extra)
+        return base
+
+    if len(d) < MIN_BARS:
+        return wait(f"Need {MIN_BARS} closed candles, have {len(d)}.")
+
+    atr = safe_float(d["atr"].iloc[-1])
+    if atr is None:
+        return wait("ATR not ready.")
+    if atr < ATR_MIN:
+        return wait(f"Volatility too low (ATR {atr:.2f}).", atr=atr)
+    if atr > ATR_MAX:
+        return wait(f"Volatility too extreme (ATR {atr:.2f}).", atr=atr)
+
+    c = d.iloc[-1]
+    hist = d["hist"].values
+
+    cands = detect_divergences(d, atr)
+    if "cross" in cfg["signal_mode"].lower():
+        cands += detect_cross_setups(d)
+    if not cands:
+        return wait("No divergence / MACD setup on the last closed candle.", atr=atr)
+
+    best, near_miss = None, None
+    for cand in cands:
+        s = 1 if cand["side"] == "BUY" else -1
+        candle_ok = (c["close"] - c["open"]) * s > 0
+        turn_ok = (hist[-1] - hist[-2]) * s > 0
+        if not (candle_ok and turn_ok):
+            near_miss = cand
+            continue
+
+        score = 3
+        if cand["type"] == "div" and macd_cross(d, cand["side"], 3):
+            score += 1
+        if (hist[-1] - hist[-2]) * s > 0 and (hist[-2] - hist[-3]) * s > 0:
+            score += 1
+        if abs(c["close"] - c["open"]) >= 0.5 * atr:
+            score += 1
+        cand["score"] = score
+        if best is None or score > best["score"]:
+            best = cand
+
+    if best is None:
+        return wait(f"{near_miss['kind']} spotted ({near_miss['side']}), waiting for a "
+                    f"confirming candle + histogram turn.", atr=atr)
+
+    if best["score"] < cfg["min_score"]:
+        return wait(f"{best['kind']} ({best['side']}) score {best['score']}/6 "
+                    f"< required {cfg['min_score']}.", atr=atr, score=best["score"])
+
+    if bid is not None and offer is not None:
+        chased = (offer - c["close"]) if best["side"] == "BUY" else (c["close"] - bid)
+        if chased > MAX_CHASE_ATR * atr:
+            return wait(f"{best['kind']} but price already ran {chased:.2f} "
+                        f"(> {MAX_CHASE_ATR} ATR). Not chasing.", atr=atr, score=best["score"])
+
+    return {
+        "signal": best["side"], "score": best["score"], "kind": best["kind"],
+        "id": best["id"], "atr": atr, "sl_ref": best["sl_ref"],
+        "reason": f"{best['kind']} • score {best['score']}/6 • "
+                  f"MACD {c['macd']:.3f} • hist {c['hist']:.3f} • ATR {atr:.2f}",
+    }
+
+
+def refresh_signal(cfg=None):
+    cfg = cfg or st.session_state.cfg
+    d = completed_df()
+    if d.empty or len(d) < MIN_BARS:
+        sig = {"signal": "WAIT", "score": 0, "id": None, "kind": None, "atr": None,
+               "sl_ref": None, "reason": f"Need {MIN_BARS} closed candles."}
+    else:
+        sig = evaluate_signal(add_indicators(d), st.session_state.live_bid,
+                              st.session_state.live_offer, cfg)
+    st.session_state.signal = sig
+    return sig
+
+
+# ============================================================
+# PERSISTENCE (survives browser refresh / Streamlit restart)
+# ============================================================
+
+def save_runtime():
+    ss = st.session_state
+    try:
+        with open(STATE_FILE, "w") as fh:
+            json.dump({"cycle": ss.cycle, "active_normal": ss.active_normal}, fh, default=str)
+    except Exception as exc:
+        log(f"State save failed: {exc}")
+    
