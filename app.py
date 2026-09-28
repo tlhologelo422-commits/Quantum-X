@@ -8845,3 +8845,900 @@ def v24_diagnostic_status(
         return "DETECTED"
 
     return "NONE"
+# ============================================================
+# QUANTUM X V2.4 — DIAGNOSTIC MODE
+# HALF 1 — PART 1B
+# ============================================================
+#
+# RAW ORDER BLOCK + FVG STRUCTURE COUNTS
+#
+# PURPOSE:
+#   Detect raw structural candidates BEFORE the existing
+#   V2.4 filters are applied.
+#
+# IMPORTANT:
+#   - Diagnostic only.
+#   - No trading.
+#   - Does not modify V2.4 detector functions.
+#   - Does not modify V2.5 VWAP / ATR / Volume logic.
+# ============================================================
+
+
+# ------------------------------------------------------------
+# RAW DISPLACEMENT CANDIDATES
+# ------------------------------------------------------------
+
+def detect_v24_diagnostic_displacements(
+    df,
+    atr,
+):
+    """
+    Detect broad displacement candidates.
+
+    This deliberately uses fewer restrictions than the actual
+    V2.4 OB detector.
+
+    The purpose is to answer:
+
+        "Are there actually large directional candles?"
+
+    A candle qualifies when its range is at least the configured
+    displacement ATR multiple.
+    """
+
+    candidates = []
+
+    if df is None or df.empty:
+        return candidates
+
+    if atr is None or atr <= 0:
+        return candidates
+
+    data = df.copy()
+
+    required_columns = {
+        "open",
+        "high",
+        "low",
+        "close",
+    }
+
+    if not required_columns.issubset(
+        data.columns
+    ):
+        return candidates
+
+    data = data.sort_index()
+
+    for index, row in data.iterrows():
+
+        try:
+            candle_open = float(
+                row["open"]
+            )
+            candle_high = float(
+                row["high"]
+            )
+            candle_low = float(
+                row["low"]
+            )
+            candle_close = float(
+                row["close"]
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            continue
+
+        candle_range = (
+            candle_high
+            - candle_low
+        )
+
+        candle_body = abs(
+            candle_close
+            - candle_open
+        )
+
+        if candle_range <= 0:
+            continue
+
+        body_ratio = (
+            candle_body
+            / candle_range
+        )
+
+        atr_multiple = (
+            candle_range
+            / atr
+        )
+
+        if (
+            atr_multiple
+            >= V24_DISPLACEMENT_ATR
+        ):
+
+            if candle_close > candle_open:
+                direction = "BULLISH"
+
+            elif candle_close < candle_open:
+                direction = "BEARISH"
+
+            else:
+                direction = "NEUTRAL"
+
+            candidates.append(
+                {
+                    "timestamp": index,
+                    "open": candle_open,
+                    "high": candle_high,
+                    "low": candle_low,
+                    "close": candle_close,
+                    "range": candle_range,
+                    "body": candle_body,
+                    "body_ratio": body_ratio,
+                    "atr_multiple": atr_multiple,
+                    "direction": direction,
+                }
+            )
+
+    return candidates
+
+
+# ------------------------------------------------------------
+# RAW ORDER-BLOCK CANDIDATES
+# ------------------------------------------------------------
+
+def detect_v24_diagnostic_order_blocks(
+    df,
+    displacement_candidates,
+):
+    """
+    Detect broad potential Order Blocks.
+
+    Definition used here:
+
+        Bullish displacement
+            -> previous candle becomes a potential bearish OB
+
+        Bearish displacement
+            -> previous candle becomes a potential bullish OB
+
+    No ATR range filter is applied to the OB candle here.
+
+    This is intentionally broader than the production detector.
+    """
+
+    order_blocks = []
+
+    if df is None or df.empty:
+        return order_blocks
+
+    if not displacement_candidates:
+        return order_blocks
+
+    data = df.copy()
+    data = data.sort_index()
+
+    for displacement in displacement_candidates:
+
+        timestamp = displacement[
+            "timestamp"
+        ]
+
+        try:
+            position = data.index.get_loc(
+                timestamp
+            )
+        except (
+            KeyError,
+            TypeError,
+        ):
+            continue
+
+        if isinstance(
+            position,
+            slice,
+        ):
+            continue
+
+        if position <= 0:
+            continue
+
+        previous_timestamp = (
+            data.index[position - 1]
+        )
+
+        previous = data.loc[
+            previous_timestamp
+        ]
+
+        try:
+            previous_open = float(
+                previous["open"]
+            )
+            previous_high = float(
+                previous["high"]
+            )
+            previous_low = float(
+                previous["low"]
+            )
+            previous_close = float(
+                previous["close"]
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            continue
+
+        previous_range = (
+            previous_high
+            - previous_low
+        )
+
+        if previous_range <= 0:
+            continue
+
+        previous_body = abs(
+            previous_close
+            - previous_open
+        )
+
+        previous_body_ratio = (
+            previous_body
+            / previous_range
+        )
+
+        displacement_direction = (
+            displacement["direction"]
+        )
+
+        if (
+            displacement_direction
+            == "BULLISH"
+            and previous_close
+            < previous_open
+        ):
+            order_block_type = (
+                "BULLISH_OB"
+            )
+
+        elif (
+            displacement_direction
+            == "BEARISH"
+            and previous_close
+            > previous_open
+        ):
+            order_block_type = (
+                "BEARISH_OB"
+            )
+
+        else:
+            continue
+
+        order_blocks.append(
+            {
+                "timestamp": previous_timestamp,
+                "displacement_timestamp": timestamp,
+                "type": order_block_type,
+                "open": previous_open,
+                "high": previous_high,
+                "low": previous_low,
+                "close": previous_close,
+                "range": previous_range,
+                "body": previous_body,
+                "body_ratio": previous_body_ratio,
+                "displacement_range": displacement[
+                    "range"
+                ],
+                "displacement_atr_multiple": displacement[
+                    "atr_multiple"
+                ],
+            }
+        )
+
+    return order_blocks
+
+
+# ------------------------------------------------------------
+# RAW FVG CANDIDATES
+# ------------------------------------------------------------
+
+def detect_v24_diagnostic_fvgs(
+    df,
+):
+    """
+    Detect classic three-candle Fair Value Gaps.
+
+    IMPORTANT:
+
+    No ATR-size filter is applied here.
+
+    This gives us the RAW number of FVG structures present
+    in the candle data.
+
+    Bullish FVG:
+
+        Candle 3 low > Candle 1 high
+
+    Bearish FVG:
+
+        Candle 1 low > Candle 3 high
+    """
+
+    fvgs = []
+
+    if df is None or df.empty:
+        return fvgs
+
+    data = df.copy()
+    data = data.sort_index()
+
+    if len(data) < 3:
+        return fvgs
+
+    for position in range(
+        2,
+        len(data),
+    ):
+
+        first = data.iloc[
+            position - 2
+        ]
+
+        middle = data.iloc[
+            position - 1
+        ]
+
+        third = data.iloc[
+            position
+        ]
+
+        try:
+            first_high = float(
+                first["high"]
+            )
+            first_low = float(
+                first["low"]
+            )
+
+            middle_high = float(
+                middle["high"]
+            )
+            middle_low = float(
+                middle["low"]
+            )
+
+            third_high = float(
+                third["high"]
+            )
+            third_low = float(
+                third["low"]
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            continue
+
+        first_timestamp = data.index[
+            position - 2
+        ]
+
+        middle_timestamp = data.index[
+            position - 1
+        ]
+
+        third_timestamp = data.index[
+            position
+        ]
+
+        # ----------------------------------------------------
+        # BULLISH FVG
+        # ----------------------------------------------------
+
+        if third_low > first_high:
+
+            gap_size = (
+                third_low
+                - first_high
+            )
+
+            fvgs.append(
+                {
+                    "timestamp": third_timestamp,
+                    "first_timestamp": first_timestamp,
+                    "middle_timestamp": middle_timestamp,
+                    "type": "BULLISH_FVG",
+                    "upper": third_low,
+                    "lower": first_high,
+                    "gap": gap_size,
+                    "middle_range": (
+                        middle_high
+                        - middle_low
+                    ),
+                }
+            )
+
+        # ----------------------------------------------------
+        # BEARISH FVG
+        # ----------------------------------------------------
+
+        elif first_low > third_high:
+
+            gap_size = (
+                first_low
+                - third_high
+            )
+
+            fvgs.append(
+                {
+                    "timestamp": third_timestamp,
+                    "first_timestamp": first_timestamp,
+                    "middle_timestamp": middle_timestamp,
+                    "type": "BEARISH_FVG",
+                    "upper": first_low,
+                    "lower": third_high,
+                    "gap": gap_size,
+                    "middle_range": (
+                        middle_high
+                        - middle_low
+                    ),
+                }
+            )
+
+    return fvgs
+
+
+# ------------------------------------------------------------
+# FVG ATR FILTER DIAGNOSTIC
+# ------------------------------------------------------------
+
+def classify_v24_diagnostic_fvgs(
+    fvgs,
+    atr,
+):
+    """
+    Separate raw FVGs from FVGs that would pass the current
+    V2.4 ATR minimum.
+
+    This is diagnostic only.
+
+    It does NOT call the production FVG detector.
+    """
+
+    result = {
+        "raw": [],
+        "atr_pass": [],
+        "atr_rejected": [],
+    }
+
+    if not fvgs:
+        return result
+
+    if atr is None or atr <= 0:
+        result[
+            "atr_rejected"
+        ] = list(fvgs)
+
+        return result
+
+    for fvg in fvgs:
+
+        gap = float(
+            fvg["gap"]
+        )
+
+        gap_atr_multiple = (
+            gap
+            / atr
+        )
+
+        diagnostic_fvg = dict(
+            fvg
+        )
+
+        diagnostic_fvg[
+            "gap_atr_multiple"
+        ] = gap_atr_multiple
+
+        result[
+            "raw"
+        ].append(
+            diagnostic_fvg
+        )
+
+        if (
+            gap_atr_multiple
+            >= V24_FVG_ATR_MIN
+        ):
+            result[
+                "atr_pass"
+            ].append(
+                diagnostic_fvg
+            )
+
+        else:
+            result[
+                "atr_rejected"
+            ].append(
+                diagnostic_fvg
+            )
+
+    return result
+
+
+# ------------------------------------------------------------
+# RAW OB FILTER DIAGNOSTIC
+# ------------------------------------------------------------
+
+def classify_v24_diagnostic_order_blocks(
+    order_blocks,
+    atr,
+):
+    """
+    Separate potential OBs from OBs passing the current
+    production OB range filter.
+
+    This allows us to see whether the OB ATR limits are
+    eliminating most candidates.
+    """
+
+    result = {
+        "raw": [],
+        "atr_pass": [],
+        "atr_rejected": [],
+    }
+
+    if not order_blocks:
+        return result
+
+    if atr is None or atr <= 0:
+        result[
+            "atr_rejected"
+        ] = list(order_blocks)
+
+        return result
+
+    for order_block in order_blocks:
+
+        block_range = float(
+            order_block["range"]
+        )
+
+        range_atr_multiple = (
+            block_range
+            / atr
+        )
+
+        diagnostic_ob = dict(
+            order_block
+        )
+
+        diagnostic_ob[
+            "range_atr_multiple"
+        ] = range_atr_multiple
+
+        result[
+            "raw"
+        ].append(
+            diagnostic_ob
+        )
+
+        if (
+            range_atr_multiple
+            >= V24_OB_ATR_MIN
+            and
+            range_atr_multiple
+            <= V24_OB_ATR_MAX
+        ):
+            result[
+                "atr_pass"
+            ].append(
+                diagnostic_ob
+            )
+
+        else:
+            result[
+                "atr_rejected"
+            ].append(
+                diagnostic_ob
+            )
+
+    return result
+
+
+# ------------------------------------------------------------
+# COMPLETE RAW V2.4 STRUCTURE DIAGNOSTIC
+# ------------------------------------------------------------
+
+def build_v24_diagnostic_structure_analysis(
+    df,
+    timeframe,
+    lookback,
+):
+    """
+    Run the raw OB/FVG diagnostic pipeline for one timeframe.
+    """
+
+    data = prepare_v24_diagnostic_data(
+        df,
+        timeframe,
+        lookback,
+    )
+
+    if data.empty:
+        return {
+            "timeframe": timeframe,
+            "status": "NO DATA",
+            "displacements": [],
+            "order_blocks": {
+                "raw": [],
+                "atr_pass": [],
+                "atr_rejected": [],
+            },
+            "fvgs": {
+                "raw": [],
+                "atr_pass": [],
+                "atr_rejected": [],
+            },
+        }
+
+    metrics = (
+        calculate_v24_diagnostic_metrics(
+            data
+        )
+    )
+
+    atr = metrics[
+        "atr"
+    ]
+
+    displacements = (
+        detect_v24_diagnostic_displacements(
+            data,
+            atr,
+        )
+    )
+
+    raw_order_blocks = (
+        detect_v24_diagnostic_order_blocks(
+            data,
+            displacements,
+        )
+    )
+
+    classified_order_blocks = (
+        classify_v24_diagnostic_order_blocks(
+            raw_order_blocks,
+            atr,
+        )
+    )
+
+    raw_fvgs = (
+        detect_v24_diagnostic_fvgs(
+            data
+        )
+    )
+
+    classified_fvgs = (
+        classify_v24_diagnostic_fvgs(
+            raw_fvgs,
+            atr,
+        )
+    )
+
+    return {
+        "timeframe": timeframe,
+        "status": "READY",
+        "bars": int(len(data)),
+        "atr": float(atr),
+        "displacements": displacements,
+        "order_blocks": classified_order_blocks,
+        "fvgs": classified_fvgs,
+    }
+
+
+# ------------------------------------------------------------
+# DIAGNOSTIC COUNTER SUMMARY
+# ------------------------------------------------------------
+
+def summarize_v24_diagnostic_structure(
+    analysis,
+):
+    """
+    Convert the detailed diagnostic structures into simple
+    counts suitable for the dashboard.
+    """
+
+    if not analysis:
+        return {
+            "status": "NO DATA",
+        }
+
+    if analysis.get(
+        "status"
+    ) != "READY":
+        return {
+            "status": "NO DATA",
+        }
+
+    displacements = analysis.get(
+        "displacements",
+        [],
+    )
+
+    order_blocks = analysis.get(
+        "order_blocks",
+        {},
+    )
+
+    fvgs = analysis.get(
+        "fvgs",
+        {},
+    )
+
+    return {
+        "status": "READY",
+
+        "bars": int(
+            analysis.get(
+                "bars",
+                0,
+            )
+        ),
+
+        "atr": float(
+            analysis.get(
+                "atr",
+                0.0,
+            )
+        ),
+
+        "displacement_candidates": int(
+            len(displacements)
+        ),
+
+        "bullish_displacements": int(
+            sum(
+                1
+                for item in displacements
+                if item.get(
+                    "direction"
+                )
+                == "BULLISH"
+            )
+        ),
+
+        "bearish_displacements": int(
+            sum(
+                1
+                for item in displacements
+                if item.get(
+                    "direction"
+                )
+                == "BEARISH"
+            )
+        ),
+
+        "raw_order_blocks": int(
+            len(
+                order_blocks.get(
+                    "raw",
+                    [],
+                )
+            )
+        ),
+
+        "atr_pass_order_blocks": int(
+            len(
+                order_blocks.get(
+                    "atr_pass",
+                    [],
+                )
+            )
+        ),
+
+        "rejected_order_blocks": int(
+            len(
+                order_blocks.get(
+                    "atr_rejected",
+                    [],
+                )
+            )
+        ),
+
+        "raw_fvgs": int(
+            len(
+                fvgs.get(
+                    "raw",
+                    [],
+                )
+            )
+        ),
+
+        "atr_pass_fvgs": int(
+            len(
+                fvgs.get(
+                    "atr_pass",
+                    [],
+                )
+            )
+        ),
+
+        "rejected_fvgs": int(
+            len(
+                fvgs.get(
+                    "atr_rejected",
+                    [],
+                )
+            )
+        ),
+    }
+
+
+# ------------------------------------------------------------
+# V2.4 DIAGNOSTIC STRUCTURE SNAPSHOT
+# ------------------------------------------------------------
+
+def build_v24_diagnostic_structure_snapshot():
+    """
+    Build diagnostic information for both M5 and M15.
+    """
+
+    m5_df = st.session_state.get(
+        "m5_bars",
+        pd.DataFrame(),
+    )
+
+    m15_df = st.session_state.get(
+        "m15_bars",
+        pd.DataFrame(),
+    )
+
+    m5_analysis = (
+        build_v24_diagnostic_structure_analysis(
+            m5_df,
+            M5,
+            V24_DIAGNOSTIC_LOOKBACK_M5,
+        )
+    )
+
+    m15_analysis = (
+        build_v24_diagnostic_structure_analysis(
+            m15_df,
+            M15,
+            V24_DIAGNOSTIC_LOOKBACK_M15,
+        )
+    )
+
+    return {
+        "m5": {
+            "analysis": m5_analysis,
+            "summary": (
+                summarize_v24_diagnostic_structure(
+                    m5_analysis
+                )
+            ),
+        },
+
+        "m15": {
+            "analysis": m15_analysis,
+            "summary": (
+                summarize_v24_diagnostic_structure(
+                    m15_analysis
+                )
+            ),
+        },
+
+        "generated_at": utc_now(),
+    }
+
+
+# ------------------------------------------------------------
+# V2.4 DIAGNOSTIC READY FLAG
+# ------------------------------------------------------------
+
+V24_DIAGNOSTIC_PART_1B_READY = True
