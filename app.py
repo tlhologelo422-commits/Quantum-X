@@ -240,7 +240,7 @@ def ig_request(method, path, version="2", body=None, delete_override=False, _ret
     if response.status_code >= 400:
         raise RuntimeError(f"IG {method} {path}: {response.status_code} {response.text[:300]}")
     return response.json() if response.text else {}
-    def get_ig_market():
+def get_ig_market():
     data = ig_request("GET", f"/markets/{IG_EPIC}", "3")
     snapshot = data.get("snapshot", {})
     rules = data.get("dealingRules", {})
