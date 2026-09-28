@@ -887,4 +887,100 @@ def finish_cycle(reason, cfg):
     start_cooldown(cfg)
     save_runtime()
     return True
-    
+  def manage_cycle(positions, m, cfg):
+    ss = st.session_state
+    c = ss.cycle
+    legs = c["legs"]
+    by_id = {p["dealId"]: p for p in positions}
+
+    if len(positions) != len(legs) or any(l["dealId"] not in by_id for l in legs):
+        finish_cycle("positions out of sync (stop hit / manual close) — flattened", cfg)
+        return
+
+    for leg in legs:                                   # use real fill levels
+        real = by_id[leg["dealId"]]
+        if real.get("level"):
+            leg["level"] = real["level"]
+
+    pnl_usd = legs_points(legs, m["bid"], m["offer"]) * cfg["contract"]
+    c["pnl_usd"] = pnl_usd
+
+    if pnl_usd >= c["target_usd"]:
+        finish_cycle(f"TARGET reached (+${pnl_usd:.2f})", cfg)
+        return
+
+    age_min = (now_utc() - datetime.fromisoformat(c["opened"])).total_seconds() / 60
+    if age_min > CYCLE_MAX_MIN:
+        finish_cycle(f"time stop after {age_min:.0f} min ({pnl_usd:+.2f})", cfg)
+        return
+
+    new_dir = opposite(legs[-1]["direction"])
+    triggered = (m["bid"] <= c["L"]) if new_dir == "SELL" else (m["offer"] >= c["U"])
+    if not triggered:
+        return
+
+    size, why = plan_next_leg(legs, c["U"], c["L"], c["Z"], c["T"], cfg)
+    if size is None:
+        finish_cycle(f"CUT — {why} (floating {pnl_usd:+.2f})", cfg)
+        return
+
+    res = open_position(new_dir, size, stop_distance=c["disaster"])
+    fill = safe_float(res.get("level")) or (m["bid"] if new_dir == "SELL" else m["offer"])
+    legs.append({"dealId": res.get("dealId"), "direction": new_dir, "size": size, "level": fill})
+    log(f"HEDGE leg {len(legs)}: {new_dir} {size} @ {fill:.2f} (basket {pnl_usd:+.2f})")
+    save_runtime()
+
+
+# ============================================================
+# ENTRY + AUTOMATION LOOP
+# ============================================================
+
+def try_entry(sig, cfg, positions):
+    ss = st.session_state
+    if sig["signal"] not in ("BUY", "SELL") or sig["id"] in ss.done_signal_ids:
+        return
+
+    ok, why = entry_gate(cfg, positions)
+    ss.gate_msg = None if ok else why
+    if not ok:
+        return
+
+    try:
+        if cfg["mode"] == "Normal":
+            open_normal(sig, cfg)
+        else:
+            open_cycle(sig, cfg)
+        ss.done_signal_ids.append(sig["id"])
+        ss.done_signal_ids = ss.done_signal_ids[-200:]
+    except RiskRefused as exc:
+        ss.done_signal_ids.append(sig["id"])
+        ss.gate_msg = str(exc)
+        log(f"Trade refused: {exc}")
+
+
+def automation_tick():
+    """Runs whenever IG is connected. Open trades are ALWAYS managed;
+    'bot_running' only controls whether NEW entries are allowed."""
+    ss = st.session_state
+    cfg = ss.cfg
+    try:
+        reset_daily_if_needed()
+        if not ss.cycle_loaded:
+            load_runtime()
+        m = get_ig_market()
+        update_live_bar(m["mid"])
+        refresh_account()
+        sig = refresh_signal(cfg)
+        positions = list_positions()
+        ss.gate_msg = None
+
+        if ss.cycle:
+            manage_cycle(positions, m, cfg)
+        elif ss.active_normal:
+            manage_normal(positions, m, cfg)
+        elif ss.bot_running:
+            try_entry(sig, cfg, positions)
+        ss.last_error = None
+    except Exception as exc:
+        set_error(str(exc))
+
