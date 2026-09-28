@@ -2572,30 +2572,7 @@ if (
     )
     def live_engine_fragment():
         try:
-                def live_engine_fragment():
-        try:
-            live_data_tick()
-
-            # V2.4 LIVE OB/FVG REFRESH
-            if (
-                "render_v24_live_layer" in globals()
-            ):
-                render_v24_live_layer()
-
-            # V2.4 DIAGNOSTIC REFRESH
-            if (
-                "render_v24_diagnostic_dashboard" in globals()
-            ):
-                render_v24_diagnostic_dashboard()
-
-            # V2.4 RECONCILIATION REFRESH
-            if (
-                "render_v24_diagnostic_reconciliation" in globals()
-            ):
-                render_v24_diagnostic_reconciliation()
-
-        except Exception as exc:
-        except Exception as exc:
+                
             st.session_state[
                 "last_error"
             ] = str(exc)
