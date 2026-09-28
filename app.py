@@ -719,14 +719,14 @@ def update_position(deal_id, stop_level, limit_level):
         body["limitLevel"] = round(limit_level, 2)
     res = ig_request("PUT", f"/positions/otc/{deal_id}", "2", body)
     return confirm_deal(res["dealReference"])
-   def open_normal(sig, cfg):
+def open_normal(sig, cfg):
     ss = st.session_state
     m = get_ig_market()
     direction, atr = sig["signal"], sig["atr"]
     entry = m["offer"] if direction == "BUY" else m["bid"]
 
     floor_dist = max(ss.min_stop * 1.2, MIN_STOP_DISTANCE)
-    dist = abs(entry - sig["sl_ref"]) + 0.25 * atr           # stop just beyond the swing
+    dist = abs(entry - sig["sl_ref"]) + 0.25 * atr      # stop just beyond the swing
     if dist > max(2.5 * atr, floor_dist):
         raise RiskRefused(f"Structure stop too wide ({dist:.2f} > 2.5 ATR). Skipped.")
     dist = max(dist, floor_dist)
@@ -749,9 +749,8 @@ def update_position(deal_id, stop_level, limit_level):
     ss.trade_count += 1
     ss.last_order = {"mode": "Normal", **ss.active_normal}
     log(f"NORMAL {direction} {size} @ {level:.2f} | SL {dist:.2f} | TP {limit:.2f} "
-        f"| risk≈${dist * size * cfg['contract']:.2f}")
-    save_runtime()
-
+        f"| risk=${dist * size * cfg['contract']:.2f}")
+    save_runtime()    
 
 def manage_normal(positions, m, cfg):
     ss = st.session_state
