@@ -73,3 +73,88 @@ DEFAULT_CFG = {
     "max_legs": 4,              # Hedging: hard leg cap
     "contract": 1.0,            # USD per 1.0 point per 1.0 size (verify!)
 }
+DEFAULT_STATE = {
+    "ig_connected": False,
+    "bot_running": False,
+    "ig_cst": None,
+    "ig_security_token": None,
+    "live_bid": None,
+    "live_offer": None,
+    "live_mid": None,
+    "market_status": None,
+    "min_stop": MIN_STOP_DISTANCE,
+    "min_deal_size": 0.01,
+    "bars": [],
+    "signal": {"signal": "WAIT", "score": 0, "reason": "Waiting for data.",
+               "id": None, "kind": None, "atr": None, "sl_ref": None},
+    "calibration_offset": None,
+    "yahoo_last_price": None,
+    "last_error": None,
+    "gate_msg": None,
+    "log": [],
+    "trade_count": 0,
+    "trade_day": datetime.now(timezone.utc).date().isoformat(),
+    "done_signal_ids": [],
+    "cooldown_until": None,
+    "entry_block_until": None,
+    "equity": None,
+    "day_start_equity": None,
+    "account_ts": None,
+    "cycle": None,
+    "cycle_loaded": False,
+    "active_normal": None,
+    "last_order": None,
+    "cfg": copy.deepcopy(DEFAULT_CFG),
+}
+
+for _key, _value in DEFAULT_STATE.items():
+    if _key not in st.session_state:
+        st.session_state[_key] = copy.deepcopy(_value)
+
+
+class RiskRefused(RuntimeError):
+    """Trade refused by the risk engine (deterministic, do not retry)."""
+
+
+# ============================================================
+# HELPERS
+# ============================================================
+
+def now_utc():
+    return datetime.now(timezone.utc)
+
+
+def floor_m5(value):
+    ts = pd.Timestamp(value)
+    ts = ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+    return ts.floor("5min")
+
+
+def safe_float(value):
+    try:
+        if value is None:
+            return None
+        result = float(value)
+        return None if pd.isna(result) else result
+    except Exception:
+        return None
+
+
+def floor2(x):
+    return math.floor(x * 100 + 1e-9) / 100
+
+
+def ceil2(x):
+    return math.ceil(x * 100 - 1e-9) / 100
+
+
+def log(message):
+    stamp = now_utc().strftime("%H:%M:%S")
+    st.session_state.log.insert(0, f"{stamp}  {message}")
+    del st.session_state.log[80:]
+
+
+def set_error(message):
+    if message != st.session_state.last_error:
+        log(f"⚠️ {message}")
+    st.session_state.last_error = message
