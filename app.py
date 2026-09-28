@@ -1247,3 +1247,86 @@ def automation_tick(size, rr):
 
     except Exception as exc:
         st.session_state.last_error = str(exc)
+# ============================================================
+# DASHBOARD
+# ============================================================
+
+def render_dashboard():
+    reset_daily_counter_if_needed()
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric(
+            "Trades",
+            f"{st.session_state.trade_count}/"
+            f"{MAX_TRADES_PER_DAY}",
+        )
+
+    with col2:
+        st.metric(
+            "Automation",
+            (
+                "ACTIVE"
+                if st.session_state.bot_running
+                else "STOPPED"
+            ),
+        )
+
+    with col3:
+        signal = st.session_state.last_signal
+
+        if signal == "BUY":
+            display_signal = "🟢 BUY"
+        elif signal == "SELL":
+            display_signal = "🔴 SELL"
+        else:
+            display_signal = "⏳ WAIT"
+
+        st.metric(
+            "Signal",
+            display_signal,
+        )
+
+    st.divider()
+
+    price_col, bid_col, offer_col = st.columns(3)
+
+    with price_col:
+        st.subheader("Live IG Price")
+
+        if st.session_state.live_mid is not None:
+            st.metric(
+                "XAU/USD",
+                f"{st.session_state.live_mid:.2f}",
+            )
+        else:
+            st.write("Waiting for IG price...")
+
+    with bid_col:
+        st.metric(
+            "Bid",
+            (
+                f"{st.session_state.live_bid:.2f}"
+                if st.session_state.live_bid is not None
+                else "—"
+            ),
+        )
+
+    with offer_col:
+        st.metric(
+            "Offer",
+            (
+                f"{st.session_state.live_offer:.2f}"
+                if st.session_state.live_offer is not None
+                else "—"
+            ),
+        )
+
+    if st.session_state.market_status:
+        st.write(
+            f"**IG Market Status:** "
+            f"`{st.session_state.market_status}`"
+        )
+
+    st.divider()
