@@ -646,4 +646,77 @@ def save_runtime():
             json.dump({"cycle": ss.cycle, "active_normal": ss.active_normal}, fh, default=str)
     except Exception as exc:
         log(f"State save failed: {exc}")
+    def load_runtime():
+    ss = st.session_state
+    try:
+        if os.path.exists(STATE_FILE):
+            with open(STATE_FILE) as fh:
+                data = json.load(fh)
+            ss.cycle = data.get("cycle")
+            ss.active_normal = data.get("active_normal")
+    except Exception as exc:
+        log(f"State load failed: {exc}")
+    ss.cycle_loaded = True
+
+
+# ============================================================
+# RISK ENGINE
+# ============================================================
+
+def opposite(direction):
+    return "SELL" if direction == "BUY" else "BUY"
+
+
+def legs_points(legs, price_buy_mark, price_sell_mark):
+    """P&L in (size x points). BUY legs marked at bid, SELL legs at offer."""
+    total = 0.0
+    for leg in legs:
+        if leg["direction"] == "BUY":
+            total += (price_buy_mark - leg["level"]) * leg["size"]
+        else:
+            total += (leg["level"] - price_sell_mark) * leg["size"]
+    return total
+
+
+def entry_gate(cfg, positions):
+    ss = st.session_state
+    reset_daily_if_needed()
+
+    if not ss.bot_running:
+        return False, "Bot is stopped (no new entries)."
+    if ss.market_status != "TRADEABLE":
+        return False, f"Market not tradeable ({ss.market_status})."
+    if ss.live_bid is None or ss.live_offer is None:
+        return False, "No live quote."
+    spread = ss.live_offer - ss.live_bid
+    if spread > MAX_SPREAD:
+        return False, f"Spread too wide ({spread:.2f})."
+    if ss.trade_count >= cfg["max_trades"]:
+        return False, f"Daily trade limit {cfg['max_trades']} reached."
+    if ss.cooldown_until and now_utc() < ss.cooldown_until:
+        wait = int((ss.cooldown_until - now_utc()).total_seconds())
+        return False, f"Cooldown ({wait}s left)."
+    if ss.equity is not None and ss.day_start_equity is not None:
+        lost = ss.day_start_equity - ss.equity
+        if lost >= cfg["max_daily_loss"]:
+            return False, f"Daily loss limit hit ({lost:.2f} >= {cfg['max_daily_loss']:.2f})."
+    if ss.cycle or ss.active_normal:
+        return False, "A trade/cycle is already being managed."
+    if positions:
+        return False, "Unmanaged XAU position open — close it or press 'Close ALL'."
+    return True, "OK"
+
+
+def start_cooldown(cfg):
+    st.session_state.cooldown_until = now_utc() + timedelta(minutes=cfg["cooldown_min"])
+
+
+# ---------------- NORMAL MODE --------------------------------
+
+def update_position(deal_id, stop_level, limit_level):
+    body = {"stopLevel": round(stop_level, 2), "trailingStop": False}
+    if limit_level:
+        body["limitLevel"] = round(limit_level, 2)
+    res = ig_request("PUT", f"/positions/otc/{deal_id}", "2", body)
+    return confirm_deal(res["dealReference"])
     
