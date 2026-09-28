@@ -325,4 +325,79 @@ def open_position(direction, size, stop_distance=None, limit_distance=None):
         payload["limitDistance"] = round(limit_distance, 2)
     res = ig_request("POST", "/positions/otc", "2", payload)
     return confirm_deal(res["dealReference"])
+def close_position(pos):
+    opposite = "SELL" if pos["direction"] == "BUY" else "BUY"
+    body = {"dealId": pos["dealId"], "direction": opposite,
+            "size": pos["size"], "orderType": "MARKET"}
+    res = ig_request("POST", "/positions/otc", "1", body, delete_override=True)
+    return confirm_deal(res["dealReference"])
 
+
+def close_all_positions():
+    closed, failed = 0, []
+    for pos in list_positions():
+        try:
+            close_position(pos)
+            closed += 1
+        except Exception as exc:
+            failed.append(str(exc))
+    return closed, failed
+
+
+# ============================================================
+# DATA: YAHOO BOOTSTRAP + IG LIVE M5 CANDLES
+# ============================================================
+
+def fetch_yahoo_m5():
+    try:
+        data = yf.download(YAHOO_SYMBOL, period="5d", interval="5m",
+                           auto_adjust=False, progress=False, threads=False)
+    except Exception as exc:
+        raise RuntimeError(f"Yahoo M5 download failed: {exc}")
+
+    if data is None or data.empty:
+        raise RuntimeError("Yahoo returned no GC=F M5 data.")
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = data.columns.get_level_values(0)
+
+    cols = ["Open", "High", "Low", "Close"]
+    if any(c not in data.columns for c in cols):
+        raise RuntimeError("Yahoo data is missing OHLC columns.")
+
+    data = data[cols].apply(pd.to_numeric, errors="coerce").dropna()
+    data.index = [floor_m5(i) for i in data.index]
+    data = data[~data.index.duplicated(keep="last")].sort_index()
+    data = data[data.index < floor_m5(now_utc())]          # completed candles only
+
+    if len(data) < MIN_BARS:
+        raise RuntimeError(f"Yahoo gave {len(data)} completed candles, need {MIN_BARS}.")
+    return data.tail(BOOTSTRAP_BARS)
+
+
+def bootstrap_m5():
+    if not st.session_state.ig_connected:
+        raise RuntimeError("Connect to IG first.")
+
+    market = get_ig_market()
+    yahoo = fetch_yahoo_m5()
+
+    yahoo_last = safe_float(yahoo["Close"].iloc[-1])
+    if yahoo_last is None:
+        raise RuntimeError("Yahoo latest close invalid.")
+    offset = market["mid"] - yahoo_last
+    st.session_state.yahoo_last_price = yahoo_last
+    st.session_state.calibration_offset = offset
+
+    bars = []
+    for ts, row in yahoo.iterrows():
+        bars.append({
+            "time": pd.Timestamp(ts),
+            "open": float(row["Open"]) + offset,
+            "high": float(row["High"]) + offset,
+            "low": float(row["Low"]) + offset,
+            "close": float(row["Close"]) + offset,
+            "source": "Yahoo calibrated",
+        })
+    st.session_state.bars = bars
+    refresh_signal()
+    return len(bars)
