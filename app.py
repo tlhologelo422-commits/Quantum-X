@@ -2572,7 +2572,7 @@ if (
     )
     def live_engine_fragment():
         try:
-                        live_data_tick()
+             live_data_tick()
 
             # V2.4 LIVE OB/FVG REFRESH
             if (
