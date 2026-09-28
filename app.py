@@ -998,3 +998,33 @@ def get_open_xau_positions():
             matching.append(item)
 
     return matching
+# ============================================================
+# TRADE DISTANCES
+# ============================================================
+
+def calculate_trade_distances(rr):
+    df = bars_dataframe()
+
+    if len(df) > 1:
+        working = df.iloc[:-1]
+    else:
+        working = df
+
+    atr = calculate_atr(working)
+
+    if atr is None:
+        atr = MIN_STOP_DISTANCE
+
+    stop_distance = max(
+        MIN_STOP_DISTANCE,
+        atr,
+    )
+
+    limit_distance = (
+        stop_distance * rr
+    )
+
+    return (
+        stop_distance,
+        limit_distance,
+    )
