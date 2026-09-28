@@ -240,4 +240,89 @@ def ig_request(method, path, version="2", body=None, delete_override=False, _ret
     if response.status_code >= 400:
         raise RuntimeError(f"IG {method} {path}: {response.status_code} {response.text[:300]}")
     return response.json() if response.text else {}
-    
+   def get_ig_market():
+    data = ig_request("GET", f"/markets/{IG_EPIC}", "3")
+    snapshot = data.get("snapshot", {})
+    rules = data.get("dealingRules", {})
+
+    bid = safe_float(snapshot.get("bid"))
+    offer = safe_float(snapshot.get("offer"))
+    if bid is None or offer is None:
+        raise RuntimeError("IG returned no usable bid/offer.")
+
+    min_stop = safe_float((rules.get("minNormalStopOrLimitDistance") or {}).get("value"))
+    min_size = safe_float((rules.get("minDealSize") or {}).get("value"))
+    if min_stop:
+        st.session_state.min_stop = max(min_stop, 0.1)
+    if min_size:
+        st.session_state.min_deal_size = min_size
+
+    st.session_state.live_bid = bid
+    st.session_state.live_offer = offer
+    st.session_state.live_mid = (bid + offer) / 2.0
+    st.session_state.market_status = snapshot.get("marketStatus", "UNKNOWN")
+
+    return {"bid": bid, "offer": offer, "mid": (bid + offer) / 2.0,
+            "market_status": st.session_state.market_status}
+
+
+def refresh_account(force=False):
+    last = st.session_state.account_ts
+    if not force and last and (now_utc() - last).total_seconds() < 60:
+        return
+    data = ig_request("GET", "/accounts", "1")
+    accounts = data.get("accounts", [])
+    if not accounts:
+        return
+    acct = next((a for a in accounts if a.get("preferred")), accounts[0])
+    bal = acct.get("balance", {})
+    balance = safe_float(bal.get("balance"))
+    if balance is None:
+        return
+    equity = balance + (safe_float(bal.get("profitLoss")) or 0.0)
+    st.session_state.equity = equity
+    st.session_state.account_ts = now_utc()
+    if st.session_state.day_start_equity is None:
+        st.session_state.day_start_equity = equity
+
+
+def list_positions():
+    data = ig_request("GET", "/positions", "2")
+    out = []
+    for item in data.get("positions", []):
+        pos = item.get("position", {})
+        mkt = item.get("market", {})
+        if (pos.get("epic") or mkt.get("epic")) != IG_EPIC:
+            continue
+        out.append({
+            "dealId": pos.get("dealId"),
+            "direction": pos.get("direction"),
+            "size": safe_float(pos.get("size")),
+            "level": safe_float(pos.get("level")),
+            "stopLevel": safe_float(pos.get("stopLevel")),
+            "limitLevel": safe_float(pos.get("limitLevel")),
+        })
+    return out
+
+
+def confirm_deal(reference):
+    time.sleep(0.5)
+    data = ig_request("GET", f"/confirms/{reference}", "1")
+    if data.get("dealStatus") != "ACCEPTED":
+        raise RuntimeError(f"IG rejected the deal: {data.get('reason', 'unknown reason')}")
+    return data
+
+
+def open_position(direction, size, stop_distance=None, limit_distance=None):
+    payload = {
+        "epic": IG_EPIC, "expiry": "-", "direction": direction,
+        "size": float(size), "orderType": "MARKET",
+        "currencyCode": CURRENCY, "forceOpen": True, "guaranteedStop": False,
+    }
+    if stop_distance:
+        payload["stopDistance"] = round(stop_distance, 2)
+    if limit_distance:
+        payload["limitDistance"] = round(limit_distance, 2)
+    res = ig_request("POST", "/positions/otc", "2", payload)
+    return confirm_deal(res["dealReference"])
+
