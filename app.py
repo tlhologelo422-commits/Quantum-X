@@ -1053,3 +1053,88 @@ def render_dashboard():
 
 st.title("🐎 Quantum X PRO")
 st.caption("IG Demo • XAU/USD M5 • MACD divergence scalper • Normal & Hedging Martingale")
+with st.sidebar:
+    cfg = st.session_state.cfg
+    st.header("⚙️ Strategy")
+
+    cfg["mode"] = st.radio("Bot mode", ["Normal", "Hedging Martingale"],
+                           index=0 if cfg["mode"] == "Normal" else 1)
+    cfg["signal_mode"] = st.selectbox(
+        "Signals", ["Divergence + MACD cross", "Divergence only"],
+        index=0 if cfg["signal_mode"] == "Divergence + MACD cross" else 1)
+    cfg["min_score"] = st.slider("Min signal score (higher = stricter)", 3, 6, int(cfg["min_score"]))
+    cfg["size"] = st.number_input("Max trade size", 0.01, 100.0, float(cfg["size"]), 0.01, format="%.2f")
+    cfg["rr"] = st.number_input("Risk / Reward", 0.5, 5.0, float(cfg["rr"]), 0.1, format="%.1f")
+    cfg["contract"] = st.number_input("USD per point per 1.0 size", 0.01, 1000.0, float(cfg["contract"]),
+                                      help="Check your IG contract: P&L for a 1.0 size, 1 point move.")
+
+    st.header("🛡️ Risk")
+    cfg["max_daily_loss"] = st.number_input("Max daily loss (USD)", 1.0, 100000.0, float(cfg["max_daily_loss"]))
+    cfg["max_trades"] = int(st.number_input("Max trades / cycles per day", 1, 100, int(cfg["max_trades"])))
+    cfg["cooldown_min"] = int(st.number_input("Cooldown after close (min)", 0, 120, int(cfg["cooldown_min"])))
+
+    if cfg["mode"] == "Normal":
+        cfg["risk_usd"] = st.number_input("Risk per trade (USD)", 0.5, 10000.0, float(cfg["risk_usd"]))
+        cfg["be_trigger"] = st.slider("Break-even at (× risk)", 0.3, 1.5, float(cfg["be_trigger"]), 0.1)
+    else:
+        st.warning("Martingale sizing grows every leg. The hard cap below is what protects you.")
+        cfg["max_cycle_risk"] = st.number_input("HARD max loss per cycle (USD)", 1.0, 100000.0,
+                                                float(cfg["max_cycle_risk"]))
+        cfg["max_legs"] = int(st.slider("Max legs per cycle", 2, 6, int(cfg["max_legs"])))
+        cfg["mult"] = st.slider("Min size growth per leg", 1.2, 3.0, float(cfg["mult"]), 0.1)
+        cfg["zone_mult"] = st.slider("Zone width (× ATR)", 0.6, 3.0, float(cfg["zone_mult"]), 0.1)
+
+    st.divider()
+    ss = st.session_state
+    st.caption(f"Epic: `{IG_EPIC}`  •  max spread {MAX_SPREAD}")
+
+    if st.button("🔌 Connect IG Demo", use_container_width=True):
+        try:
+            ig_login()
+            count = bootstrap_m5()
+            load_runtime()
+            refresh_account(force=True)
+            ss.last_error = None
+            st.success(f"Connected • {count} M5 candles loaded.")
+        except Exception as exc:
+            ss.ig_connected = False
+            ss.last_error = str(exc)
+    st.success("🟢 IG DEMO CONNECTED") if ss.ig_connected else st.warning("🔴 IG NOT CONNECTED")
+
+    if st.button("🚀 Start Bot", use_container_width=True, disabled=not ss.ig_connected):
+        try:
+            if len(ss.bars) < MIN_BARS:
+                bootstrap_m5()
+            ss.bot_running = True
+            ss.last_error = None
+            ss.cooldown_until = None
+            automation_tick()               # evaluate + trade RIGHT NOW, no waiting
+        except Exception as exc:
+            ss.last_error = str(exc)
+
+    if st.button("🛑 Stop Bot (no new entries)", use_container_width=True):
+        ss.bot_running = False
+    st.success("🟢 BOT RUNNING") if ss.bot_running else st.info("⏹️ BOT STOPPED")
+    st.caption("Stopping only blocks NEW entries. Open trades/cycles keep being managed.")
+
+    if st.button("❌ Close ALL XAU positions", use_container_width=True, disabled=not ss.ig_connected):
+        try:
+            ss.bot_running = False
+            closed, failed = close_all_positions()
+            ss.cycle, ss.active_normal = None, None
+            save_runtime()
+            log(f"Manual close: {closed} closed, {len(failed)} failed")
+            if failed:
+                ss.last_error = failed[0]
+        except Exception as exc:
+            ss.last_error = str(exc)
+
+
+@st.fragment(run_every=POLL_SECONDS)
+def live_automation():
+    if st.session_state.ig_connected:
+        automation_tick()
+    render_dashboard()
+
+
+live_automation()
