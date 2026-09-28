@@ -10091,3 +10091,843 @@ if (
     and V24_DIAGNOSTIC_PART_2A_READY
 ):
     render_v24_diagnostic_dashboard()
+# ============================================================
+# QUANTUM X V2.4 — DIAGNOSTIC MODE
+# PART 3A — PRODUCTION RECONCILIATION ANALYSIS
+# ============================================================
+#
+# PURPOSE:
+#   Trace detected OB/FVG structures through the stages that
+#   can cause them to disappear from the production view.
+#
+# IMPORTANT:
+#   - Diagnostic only.
+#   - Does NOT modify production V2.4 functions.
+#   - Does NOT modify V2.5.
+#   - Does NOT place trades.
+# ============================================================
+
+
+# ------------------------------------------------------------
+# V2.4 RECONCILIATION CONFIGURATION
+# ------------------------------------------------------------
+
+V24_DIAGNOSTIC_NEAR_ATR_MULTIPLE = 1.00
+
+
+# ------------------------------------------------------------
+# DIAGNOSTIC PRICE RELATIONSHIP
+# ------------------------------------------------------------
+
+def classify_v24_diagnostic_price_relation(
+    current_price,
+    lower,
+    upper,
+):
+    """
+    Classify where current price sits relative to a zone.
+
+    Results:
+
+        BELOW
+        INSIDE
+        ABOVE
+        UNKNOWN
+    """
+
+    try:
+        price = float(
+            current_price
+        )
+
+        lower = float(
+            lower
+        )
+
+        upper = float(
+            upper
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return "UNKNOWN"
+
+    if lower > upper:
+        lower, upper = upper, lower
+
+    if price < lower:
+        return "BELOW"
+
+    if price > upper:
+        return "ABOVE"
+
+    return "INSIDE"
+
+
+# ------------------------------------------------------------
+# FVG AGE ANALYSIS
+# ------------------------------------------------------------
+
+def analyze_v24_diagnostic_fvg_age(
+    fvgs,
+    data,
+):
+    """
+    Determine the age in completed candles of every FVG.
+
+    The existing V2.4 configuration contains:
+
+        V24_FVG_MAX_AGE
+
+    This diagnostic explicitly measures how many FVGs survive
+    that age limit.
+    """
+
+    result = {
+        "total": 0,
+        "age_pass": [],
+        "age_rejected": [],
+    }
+
+    if (
+        not fvgs
+        or data is None
+        or data.empty
+    ):
+        return result
+
+    result[
+        "total"
+    ] = len(fvgs)
+
+    sorted_data = data.sort_index()
+
+    for fvg in fvgs:
+
+        timestamp = fvg.get(
+            "timestamp"
+        )
+
+        if timestamp is None:
+            continue
+
+        try:
+            positions = (
+                sorted_data.index
+                <= pd.Timestamp(timestamp)
+            )
+
+            matching_positions = (
+                positions.nonzero()[0]
+            )
+
+            if len(
+                matching_positions
+            ) == 0:
+                continue
+
+            fvg_position = int(
+                matching_positions[-1]
+            )
+
+            latest_position = (
+                len(sorted_data) - 1
+            )
+
+            age = (
+                latest_position
+                - fvg_position
+            )
+
+        except Exception:
+            continue
+
+        diagnostic_fvg = dict(
+            fvg
+        )
+
+        diagnostic_fvg[
+            "age_bars"
+        ] = int(age)
+
+        if (
+            age
+            <= V24_FVG_MAX_AGE
+        ):
+            result[
+                "age_pass"
+            ].append(
+                diagnostic_fvg
+            )
+        else:
+            result[
+                "age_rejected"
+            ].append(
+                diagnostic_fvg
+            )
+
+    return result
+
+
+# ------------------------------------------------------------
+# FVG ACTIVE / FILLED ANALYSIS
+# ------------------------------------------------------------
+
+def analyze_v24_diagnostic_fvg_status(
+    fvgs,
+    current_price,
+):
+    """
+    Reproduce the current-price FVG status logic used by the
+    V2.4 diagnostic model.
+
+    Bullish FVG:
+        current price <= lower -> FILLED
+
+    Bearish FVG:
+        current price >= upper -> FILLED
+
+    Otherwise:
+        ACTIVE
+    """
+
+    result = {
+        "total": 0,
+        "active": [],
+        "filled": [],
+        "unknown": [],
+    }
+
+    if not fvgs:
+        return result
+
+    try:
+        price = float(
+            current_price
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        result[
+            "unknown"
+        ] = list(fvgs)
+
+        return result
+
+    result[
+        "total"
+    ] = len(fvgs)
+
+    for fvg in fvgs:
+
+        diagnostic_fvg = dict(
+            fvg
+        )
+
+        try:
+            lower = float(
+                fvg["lower"]
+            )
+
+            upper = float(
+                fvg["upper"]
+            )
+
+            fvg_type = str(
+                fvg.get(
+                    "type",
+                    "",
+                )
+            ).upper()
+
+        except (
+            TypeError,
+            ValueError,
+            KeyError,
+        ):
+            result[
+                "unknown"
+            ].append(
+                diagnostic_fvg
+            )
+
+            continue
+
+        relation = (
+            classify_v24_diagnostic_price_relation(
+                price,
+                lower,
+                upper,
+            )
+        )
+
+        diagnostic_fvg[
+            "price_relation"
+        ] = relation
+
+        if (
+            fvg_type
+            == "BULLISH_FVG"
+        ):
+
+            if price <= lower:
+
+                diagnostic_fvg[
+                    "status"
+                ] = "FILLED"
+
+                result[
+                    "filled"
+                ].append(
+                    diagnostic_fvg
+                )
+
+            else:
+
+                diagnostic_fvg[
+                    "status"
+                ] = "ACTIVE"
+
+                result[
+                    "active"
+                ].append(
+                    diagnostic_fvg
+                )
+
+        elif (
+            fvg_type
+            == "BEARISH_FVG"
+        ):
+
+            if price >= upper:
+
+                diagnostic_fvg[
+                    "status"
+                ] = "FILLED"
+
+                result[
+                    "filled"
+                ].append(
+                    diagnostic_fvg
+                )
+
+            else:
+
+                diagnostic_fvg[
+                    "status"
+                ] = "ACTIVE"
+
+                result[
+                    "active"
+                ].append(
+                    diagnostic_fvg
+                )
+
+        else:
+
+            diagnostic_fvg[
+                "status"
+            ] = "UNKNOWN"
+
+            result[
+                "unknown"
+            ].append(
+                diagnostic_fvg
+            )
+
+    return result
+
+
+# ------------------------------------------------------------
+# OB PRICE RELATIONSHIP ANALYSIS
+# ------------------------------------------------------------
+
+def analyze_v24_diagnostic_ob_status(
+    order_blocks,
+    current_price,
+    atr,
+):
+    """
+    Analyze where the current price sits relative to each
+    Order Block.
+
+    This does not declare an OB valid or invalid.
+
+    It simply tells us whether the production dashboard is
+    looking at zones that are above, below, or around price.
+    """
+
+    result = {
+        "total": 0,
+        "above_price": [],
+        "below_price": [],
+        "inside": [],
+        "near": [],
+    }
+
+    if not order_blocks:
+        return result
+
+    try:
+        price = float(
+            current_price
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return result
+
+    result[
+        "total"
+    ] = len(order_blocks)
+
+    if atr is None or atr <= 0:
+        near_distance = float(
+            "inf"
+        )
+    else:
+        near_distance = (
+            float(atr)
+            * V24_DIAGNOSTIC_NEAR_ATR_MULTIPLE
+        )
+
+    for order_block in order_blocks:
+
+        diagnostic_ob = dict(
+            order_block
+        )
+
+        try:
+            lower = float(
+                order_block["low"]
+            )
+
+            upper = float(
+                order_block["high"]
+            )
+
+        except (
+            TypeError,
+            ValueError,
+            KeyError,
+        ):
+            continue
+
+        if lower > upper:
+            lower, upper = upper, lower
+
+        relation = (
+            classify_v24_diagnostic_price_relation(
+                price,
+                lower,
+                upper,
+            )
+        )
+
+        diagnostic_ob[
+            "price_relation"
+        ] = relation
+
+        if relation == "INSIDE":
+
+            result[
+                "inside"
+            ].append(
+                diagnostic_ob
+            )
+
+        elif relation == "ABOVE":
+
+            result[
+                "above_price"
+            ].append(
+                diagnostic_ob
+            )
+
+        elif relation == "BELOW":
+
+            result[
+                "below_price"
+            ].append(
+                diagnostic_ob
+            )
+
+        if relation == "INSIDE":
+
+            result[
+                "near"
+            ].append(
+                diagnostic_ob
+            )
+
+        else:
+
+            if price < lower:
+
+                distance = (
+                    lower
+                    - price
+                )
+
+            elif price > upper:
+
+                distance = (
+                    price
+                    - upper
+                )
+
+            else:
+
+                distance = 0.0
+
+            if distance <= near_distance:
+
+                result[
+                    "near"
+                ].append(
+                    diagnostic_ob
+                )
+
+
+    return result
+
+
+# ------------------------------------------------------------
+# COMPLETE RECONCILIATION FOR ONE TIMEFRAME
+# ------------------------------------------------------------
+
+def build_v24_diagnostic_reconciliation(
+    df,
+    timeframe,
+    lookback,
+    current_price,
+):
+    """
+    Build the complete V2.4 production-reconciliation
+    diagnostic for one timeframe.
+    """
+
+    data = prepare_v24_diagnostic_data(
+        df,
+        timeframe,
+        lookback,
+    )
+
+    if data.empty:
+
+        return {
+            "timeframe": timeframe,
+            "status": "NO DATA",
+        }
+
+    metrics = (
+        calculate_v24_diagnostic_metrics(
+            data
+        )
+    )
+
+    atr = metrics[
+        "atr"
+    ]
+
+    if current_price is None:
+
+        current_price = float(
+            data["close"].iloc[-1]
+        )
+
+    try:
+        current_price = float(
+            current_price
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        current_price = float(
+            data["close"].iloc[-1]
+        )
+
+    # --------------------------------------------------------
+    # RAW STRUCTURES
+    # --------------------------------------------------------
+
+    displacements = (
+        detect_v24_diagnostic_displacements(
+            data,
+            atr,
+        )
+    )
+
+    raw_obs = (
+        detect_v24_diagnostic_order_blocks(
+            data,
+            displacements,
+        )
+    )
+
+    classified_obs = (
+        classify_v24_diagnostic_order_blocks(
+            raw_obs,
+            atr,
+        )
+    )
+
+    raw_fvgs = (
+        detect_v24_diagnostic_fvgs(
+            data
+        )
+    )
+
+    classified_fvgs = (
+        classify_v24_diagnostic_fvgs(
+            raw_fvgs,
+            atr,
+        )
+    )
+
+    # --------------------------------------------------------
+    # FVG AGE
+    # --------------------------------------------------------
+
+    fvg_age = (
+        analyze_v24_diagnostic_fvg_age(
+            classified_fvgs[
+                "atr_pass"
+            ],
+            data,
+        )
+    )
+
+    # --------------------------------------------------------
+    # FVG ACTIVE / FILLED
+    # --------------------------------------------------------
+
+    fvg_status = (
+        analyze_v24_diagnostic_fvg_status(
+            fvg_age[
+                "age_pass"
+            ],
+            current_price,
+        )
+    )
+
+    # --------------------------------------------------------
+    # OB PRICE RELATIONSHIP
+    # --------------------------------------------------------
+
+    ob_status = (
+        analyze_v24_diagnostic_ob_status(
+            classified_obs[
+                "atr_pass"
+            ],
+            current_price,
+            atr,
+        )
+    )
+
+    # --------------------------------------------------------
+    # RETURN COMPLETE RECONCILIATION
+    # --------------------------------------------------------
+
+    return {
+        "timeframe": timeframe,
+        "status": "READY",
+
+        "bars": int(
+            len(data)
+        ),
+
+        "atr": float(
+            atr
+        ),
+
+        "current_price": float(
+            current_price
+        ),
+
+        "displacements": {
+            "total": int(
+                len(displacements)
+            ),
+        },
+
+        "order_blocks": {
+            "raw": int(
+                len(
+                    classified_obs[
+                        "raw"
+                    ]
+                )
+            ),
+
+            "atr_pass": int(
+                len(
+                    classified_obs[
+                        "atr_pass"
+                    ]
+                )
+            ),
+
+            "atr_rejected": int(
+                len(
+                    classified_obs[
+                        "atr_rejected"
+                    ]
+                )
+            ),
+
+            "above_price": int(
+                len(
+                    ob_status[
+                        "above_price"
+                    ]
+                )
+            ),
+
+            "below_price": int(
+                len(
+                    ob_status[
+                        "below_price"
+                    ]
+                )
+            ),
+
+            "inside": int(
+                len(
+                    ob_status[
+                        "inside"
+                    ]
+                )
+            ),
+
+            "near": int(
+                len(
+                    ob_status[
+                        "near"
+                    ]
+                )
+            ),
+        },
+
+        "fvgs": {
+            "raw": int(
+                len(
+                    classified_fvgs[
+                        "raw"
+                    ]
+                )
+            ),
+
+            "atr_pass": int(
+                len(
+                    classified_fvgs[
+                        "atr_pass"
+                    ]
+                )
+            ),
+
+            "atr_rejected": int(
+                len(
+                    classified_fvgs[
+                        "atr_rejected"
+                    ]
+                )
+            ),
+
+            "age_pass": int(
+                len(
+                    fvg_age[
+                        "age_pass"
+                    ]
+                )
+            ),
+
+            "age_rejected": int(
+                len(
+                    fvg_age[
+                        "age_rejected"
+                    ]
+                )
+            ),
+
+            "active": int(
+                len(
+                    fvg_status[
+                        "active"
+                    ]
+                )
+            ),
+
+            "filled": int(
+                len(
+                    fvg_status[
+                        "filled"
+                    ]
+                )
+            ),
+
+            "unknown": int(
+                len(
+                    fvg_status[
+                        "unknown"
+                    ]
+                )
+            ),
+        },
+    }
+
+
+# ------------------------------------------------------------
+# MASTER RECONCILIATION SNAPSHOT
+# ------------------------------------------------------------
+
+def build_v24_diagnostic_reconciliation_snapshot():
+    """
+    Build M5 and M15 reconciliation diagnostics.
+    """
+
+    live_price = st.session_state.get(
+        "live_mid"
+    )
+
+    m5_df = st.session_state.get(
+        "m5_bars",
+        pd.DataFrame(),
+    )
+
+    m15_df = st.session_state.get(
+        "m15_bars",
+        pd.DataFrame(),
+    )
+
+    m5 = (
+        build_v24_diagnostic_reconciliation(
+            m5_df,
+            M5,
+            V24_DIAGNOSTIC_LOOKBACK_M5,
+            live_price,
+        )
+    )
+
+    m15 = (
+        build_v24_diagnostic_reconciliation(
+            m15_df,
+            M15,
+            V24_DIAGNOSTIC_LOOKBACK_M15,
+            live_price,
+        )
+    )
+
+    return {
+        "m5": m5,
+        "m15": m15,
+        "generated_at": utc_now(),
+    }
+
+
+V24_DIAGNOSTIC_PART_3A_READY = True
