@@ -804,8 +804,8 @@ def plan_next_leg(legs, U, L, Z, T, cfg):
 
     s0 = legs[0]["size"]
     new_dir = opposite(legs[-1]["direction"])
-    open_level = L if new_dir == "SELL" else U           # where the new leg opens
-    far_level = U if new_dir == "SELL" else L            # the other zone edge
+    open_level = L if new_dir == "SELL" else U
+    far_level = U if new_dir == "SELL" else L
 
     p_now = legs_points(legs, open_level, open_level)
     buys = sum(x["size"] for x in legs if x["direction"] == "BUY")
@@ -821,9 +821,10 @@ def plan_next_leg(legs, U, L, Z, T, cfg):
     locked_loss = -p_far * cfg["contract"]
     if locked_loss > cfg["max_cycle_risk"]:
         return None, (f"next leg {size:.2f} would lock ${locked_loss:.2f} "
-                      f"> cycle cap ${cfg['max_cycle_risk']:.2f}")
+                      f" > cycle cap ${cfg['max_cycle_risk']:.2f}")
     return size, "ok"
-   def fit_first_size(direction, Z, T, cfg, min_size):
+
+def fit_first_size(direction, Z, T, cfg, min_size):
     """Largest size <= cfg size for which at least one hedge fits the cycle cap."""
     U, L = (0.0, -Z) if direction == "BUY" else (Z, 0.0)
     level0 = U if direction == "BUY" else L
@@ -836,7 +837,6 @@ def plan_next_leg(legs, U, L, Z, T, cfg):
         smaller = floor2(size * 0.9)
         size = smaller if smaller < size else round(size - 0.01, 2)
     return None
-
 
 def open_cycle(sig, cfg):
     ss = st.session_state
