@@ -1394,3 +1394,73 @@ def render_dashboard():
                 else "—"
             ),
         )
+# --------------------------------------------------------
+    # SIGNAL
+    # --------------------------------------------------------
+
+    st.subheader("🤖 Signal Engine")
+
+    signal = st.session_state.last_signal
+
+    if signal == "BUY":
+        st.success(
+            "🟢 BUY — "
+            + st.session_state.last_signal_reason
+        )
+
+    elif signal == "SELL":
+        st.error(
+            "🔴 SELL — "
+            + st.session_state.last_signal_reason
+        )
+
+    else:
+        st.info(
+            "⏳ WAIT — "
+            + st.session_state.last_signal_reason
+        )
+
+    if st.session_state.bot_running:
+        st.success(
+            f"🤖 AUTOMATION ACTIVE — "
+            f"checking every {POLL_SECONDS} seconds"
+        )
+    else:
+        st.warning(
+            "⏹️ Automation stopped."
+        )
+
+    # --------------------------------------------------------
+    # LAST ORDER
+    # --------------------------------------------------------
+
+    if st.session_state.last_order:
+        st.subheader("📋 Last Order")
+
+        order = st.session_state.last_order
+
+        st.write(
+            f"Direction: **{order.get('direction', '—')}**"
+        )
+
+        st.write(
+            f"Size: **{order.get('size', '—')}**"
+        )
+
+        if order.get("stop_distance") is not None:
+            st.write(
+                "Stop distance: "
+                f"**{order['stop_distance']:.2f}**"
+            )
+
+        if order.get("limit_distance") is not None:
+            st.write(
+                "Limit distance: "
+                f"**{order['limit_distance']:.2f}**"
+            )
+
+        if order.get("signal_reason"):
+            st.write(
+                "Reason: "
+                f"{order['signal_reason']}"
+    )
