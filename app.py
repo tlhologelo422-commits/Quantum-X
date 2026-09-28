@@ -915,4 +915,37 @@ def evaluate_signal():
     near_support = (
         support is not None
         and abs(current_price - support)
-        <= LEVEL_TO
+        <= LEVEL_TOLERANCE
+    )
+
+    if bullish and near_support:
+        signal = "BUY"
+
+        reason = (
+            f"{confirmation} near support "
+            f"{support:.2f}; IG price "
+            f"{current_price:.2f}"
+        )
+
+    elif bearish and near_resistance:
+        signal = "SELL"
+
+        reason = (
+            f"{confirmation} near resistance "
+            f"{resistance:.2f}; IG price "
+            f"{current_price:.2f}"
+        )
+
+    else:
+        signal = "WAIT"
+
+        reason = (
+            f"{confirmation}, but IG price is "
+            "not close enough to the matching "
+            "S/R level."
+        )
+
+    st.session_state.last_signal = signal
+    st.session_state.last_signal_reason = reason
+
+    return signal
