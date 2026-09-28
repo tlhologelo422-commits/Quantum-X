@@ -837,8 +837,65 @@ def fit_first_size(direction, Z, T, cfg, min_size):
         smaller = floor2(size * 0.9)
         size = smaller if smaller < size else round(size - 0.01, 2)
     return None
-    
- def open_cycle(sig, cfg):
+
+def open_cycle(sig, cfg):
+    ss = st.session_state
+    m = get_ig_market()
+    direction, atr = sig["signal"], sig["atr"]
+    Z = max(cfg["zone_mult"] * atr, MIN_STOP_DISTANCE, ss.min_stop * 1.2)
+    T = Z * cfg["rr"]
+    s0 = fit_first_size(direction, Z, T, cfg, ss.min_deal_size)
+    if s0 is None:
+        raise RiskRefused(f"Cycle cap ${cfg['max_cycle_risk']:.2f} too small for zone {Z:.2f}: cannot even afford one hedge at min size. Skipped.")
+    res = open_position(direction, s0, Z * 1.5, Z * 3)
+    level = safe_float(res.get("level")) or (m["offer"] if direction == "BUY" else m["bid"])
+    U, L = (level, level - Z) if direction == "BUY" else (level + Z, level)
+    ss.cycle = {
+        "direction": direction, "Z": Z, "T": T, "U": U, "L": L,
+        "target_usd": s0 * T * cfg["contract"],
+        "opened": now_utc().isoformat(), "disaster": disaster,
+        "equity_at_open": ss.equity,
+        "legs": [{"dealId": res.get("dealId"), "direction": direction, "size": s0, "level": level}],
+    }
+    ss.trade_count += 1
+    ss.last_order = {"mode": "Hedging Martingale", **ss.cycle}
+    log(f"CYCLE {direction} {s0} @ {level:.2f} | zone {L:.2f}-{U:.2f} | target ${ss.cycle['target_usd']:.2f} | cap ${cfg['max_cycle_risk']:.2f}")
+    save_runtime()
+
+def finish_cycle(reason, cfg):
+    ss = st.session_state
+    close_all_positions()
+    remaining = list_positions()
+    if remaining:
+        set_error(f"Could not close {len(remaining)} position(s) - retrying next tick.")
+        return False
+    refresh_account(force=True)
+    before = (ss.cycle or {}).get("equity_at_open")
+    delta = (ss.equity - before) if (ss.equity is not None and before is not None) else None
+    note = f" | result ~ ${delta:+.2f}" if delta is not None else ""
+    log(f"Cycle closed: {reason}{note}")
+    ss.cycle = None
+    start_cooldown(cfg)
+    save_runtime()
+    return True
+
+def manage_cycle(positions, m, cfg):
+    ss = st.session_state
+    c = ss.cycle
+    legs = c["legs"]
+    by_id = {p["dealId"]: p for p in positions}
+
+    if len(positions) != len(legs) or any(l["dealId"] not in by_id for l in legs):
+        finish_cycle("positions out of sync (stop hit / manual close) - flattened", cfg)
+        return
+
+    for leg in legs:  # use real fill levels
+        real = by_id[leg["dealId"]]
+        if real.get("level"):
+            leg["level"] = real["level"]
+
+    pnl_usd = legs_points(legs, m["bid"], m["offer"]) * cfg["contract"]
+    c["pnl_usd"] = pnl_usd
     ss = st.session_state
     m = get_ig_market()
     direction, atr = sig["signal"], sig["atr"]
