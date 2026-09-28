@@ -1130,3 +1130,55 @@ def place_ig_order(
     }
 
     return result
+# ============================================================
+# TRADE SAFETY
+# ============================================================
+
+def can_trade(signal):
+    if signal not in ("BUY", "SELL"):
+        return False, "No trade signal."
+
+    reset_daily_counter_if_needed()
+
+    if not st.session_state.ig_connected:
+        return False, "IG is not connected."
+
+    if not st.session_state.bot_running:
+        return False, "Bot is stopped."
+
+    if (
+        st.session_state.trade_count
+        >= MAX_TRADES_PER_DAY
+    ):
+        return False, "10-trade daily limit reached."
+
+    if (
+        st.session_state.live_bid is None
+        or st.session_state.live_offer is None
+    ):
+        return False, "No live IG quote."
+
+    spread = (
+        st.session_state.live_offer
+        - st.session_state.live_bid
+    )
+
+    if spread > MAX_SPREAD:
+        return False, (
+            f"Spread too wide: {spread:.2f}"
+        )
+
+    try:
+        positions = get_open_xau_positions()
+
+        if len(positions) >= MAX_OPEN_POSITIONS:
+            return False, (
+                "One XAU/USD position is already open."
+            )
+
+    except Exception as exc:
+        return False, (
+            f"Could not verify positions: {exc}"
+        )
+
+    return True, "Trade checks passed."
