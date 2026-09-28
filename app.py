@@ -1182,3 +1182,68 @@ def can_trade(signal):
         )
 
     return True, "Trade checks passed."
+# ============================================================
+# AUTOMATION
+# ============================================================
+
+def automation_tick(size, rr):
+    if not st.session_state.bot_running:
+        return
+
+    try:
+        market = get_ig_market()
+
+        update_live_m5(
+            market["mid"]
+        )
+
+        update_structure()
+
+        signal = evaluate_signal()
+
+        if signal not in ("BUY", "SELL"):
+            return
+
+        # Prevent repeated orders on the same M5 candle.
+        current_bucket = floor_m5(
+            now_utc()
+        )
+
+        signal_key = (
+            f"{current_bucket.isoformat()}:{signal}"
+        )
+
+        if (
+            st.session_state.last_processed_signal_candle
+            == signal_key
+        ):
+            return
+
+        allowed, reason = can_trade(signal)
+
+        if not allowed:
+            st.session_state.last_error = reason
+            return
+
+        result = place_ig_order(
+            signal,
+            size,
+            rr,
+        )
+
+        st.session_state.last_processed_signal_candle = (
+            signal_key
+        )
+
+        st.session_state.last_error = None
+
+        st.session_state.last_order = {
+            **st.session_state.last_order,
+            "signal_reason": (
+                st.session_state.last_signal_reason
+            ),
+            "result": result,
+        }
+
+    except Exception as exc:
+        st.session_state.last_error = str(exc)
