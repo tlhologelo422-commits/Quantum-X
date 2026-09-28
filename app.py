@@ -983,4 +983,73 @@ def automation_tick():
         ss.last_error = None
     except Exception as exc:
         set_error(str(exc))
+# ============================================================
+# DASHBOARD
+# ============================================================
 
+def render_dashboard():
+    ss = st.session_state
+    cfg = ss.cfg
+    reset_daily_if_needed()
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Mode", cfg["mode"])
+    c2.metric("Trades today", f"{ss.trade_count}/{cfg['max_trades']}")
+    c3.metric("Entries", "ACTIVE" if ss.bot_running else "STOPPED")
+    sig = ss.signal
+    c4.metric("Signal", {"BUY": "🟢 BUY", "SELL": "🔴 SELL"}.get(sig["signal"], "⏳ WAIT"))
+
+    p1, p2, p3, p4 = st.columns(4)
+    p1.metric("XAU/USD", f"{ss.live_mid:.2f}" if ss.live_mid else "—")
+    p2.metric("Bid / Offer", f"{ss.live_bid:.2f} / {ss.live_offer:.2f}" if ss.live_bid else "—")
+    p3.metric("Equity", f"{ss.equity:,.2f}" if ss.equity is not None else "—")
+    day = (ss.equity - ss.day_start_equity) if (ss.equity is not None and ss.day_start_equity is not None) else None
+    p4.metric("Day P&L", f"{day:+.2f}" if day is not None else "—",
+              delta=f"limit -{cfg['max_daily_loss']:.0f}", delta_color="off")
+
+    if ss.market_status:
+        st.caption(f"IG market status: `{ss.market_status}`  •  min stop `{ss.min_stop}`  •  "
+                   f"min size `{ss.min_deal_size}`")
+    st.divider()
+
+    st.subheader("🤖 Signal engine")
+    text = f"{sig['signal']} — {sig['reason']}"
+    (st.success if sig["signal"] == "BUY" else st.error if sig["signal"] == "SELL" else st.info)(text)
+    if ss.gate_msg:
+        st.warning(f"Gate: {ss.gate_msg}")
+
+    if ss.cycle:
+        c = ss.cycle
+        st.subheader("♟️ Active hedging cycle")
+        st.write(f"Zone **{c['L']:.2f} – {c['U']:.2f}**  •  target **${c['target_usd']:.2f}**  •  "
+                 f"floating **{c.get('pnl_usd', 0):+.2f}**  •  legs **{len(c['legs'])}/{cfg['max_legs']}**")
+        st.dataframe(pd.DataFrame(c["legs"])[["direction", "size", "level", "dealId"]],
+                     use_container_width=True, hide_index=True)
+    elif ss.active_normal:
+        a = ss.active_normal
+        st.subheader("🎯 Active trade")
+        st.write(f"**{a['direction']} {a['size']}** @ {a['entry']:.2f}  •  SL dist {a['stop_dist']:.2f}  •  "
+                 f"TP dist {a['limit_dist']:.2f}  •  BE {'✅' if a['be_done'] else '—'}")
+
+    if ss.last_error:
+        st.error("⚠️ " + ss.last_error)
+
+    st.subheader("📜 Log")
+    st.code("\n".join(ss.log[:15]) if ss.log else "No events yet.", language=None)
+
+    st.subheader("📊 Last closed candles + MACD")
+    d = completed_df()
+    if len(d) >= MIN_BARS:
+        view = add_indicators(d).tail(15)[["time", "open", "high", "low", "close", "macd", "sig", "hist"]].copy()
+        view["time"] = view["time"].dt.strftime("%H:%M")
+        st.dataframe(view.round(3), use_container_width=True, hide_index=True)
+    else:
+        st.info(f"{len(d)}/{MIN_BARS} closed candles.")
+
+
+# ============================================================
+# PAGE + SIDEBAR
+# ============================================================
+
+st.title("🐎 Quantum X PRO")
+st.caption("IG Demo • XAU/USD M5 • MACD divergence scalper • Normal & Hedging Martingale")
